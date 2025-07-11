@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, orientation=landscape">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="screen-orientation" content="landscape">
+    <title>3D Driving Game</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: linear-gradient(to bottom, #1e3c72, #2a5298);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #fff;
+        }
+
+        #gameContainer {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            height: 100vh;
+            position: relative;
+        }
+        
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            font-size: 16px;
+            z-index: 100;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        #ui div {
+            margin: 5px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #ui span {
+            color: #00ff88;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+
+        #driftStatus {
+            color: #ff6b35 !important;
+            font-weight: bold;
+            text-shadow: 0 0 10px #ff6b35;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+        
+        #instructions {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: transparent;
+            padding: 15px 20px;
+            border-radius: 10px;
+            font-size: 12px;
+            z-index: 100;
+            text-align: right;
+            border: none;
+            backdrop-filter: none;
+            box-shadow: none;
+            max-width: 250px;
+        }
+
+        #instructions div {
+            margin: 3px 0;
+            color: #ccc;
+        }
+
+        #instructions div:first-child {
+            color: #fff;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            padding: 30px 40px;
+            border-radius: 15px;
+            font-size: 24px;
+            text-align: center;
+            z-index: 100;
+            display: none;
+            border: 3px solid #ff6b35;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5);
+        }
+
+        #gameOver div {
+            margin: 10px 0;
+        }
+
+        /* Mobile Controls */
+        #mobileControls {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 200;
+            display: none;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .control-row {
+            display: flex;
+            gap: 10px;
+        }
+
+        .control-btn {
+            width: 60px;
+            height: 60px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+            touch-action: manipulation;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            transition: all 0.1s ease;
+        }
+
+        .control-btn.active {
+            background: rgba(0, 255, 136, 0.3);
+            border-color: #00ff88;
+            transform: scale(0.95);
+        }
+
+        .control-btn.drift {
+            width: 80px;
+            height: 40px;
+            border-radius: 20px;
+            font-size: 14px;
+        }
+
+        .control-btn.drift.active {
+            background: rgba(255, 107, 53, 0.3);
+            border-color: #ff6b35;
+        }
+        
+        /* Separated control groups */
+        .left-controls {
+            align-self: flex-start;
+        }
+        
+        .right-controls {
+            align-self: flex-end;
+            display: flex;
+            align-items: center;
+        }
+
+        /* Portrait orientation warning for mobile and tablet devices */
+        @media screen and (orientation: portrait) and (max-width: 1024px) {
+            body::before {
+                content: "Please rotate your device to landscape mode for the best experience";
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.9);
+                color: white;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                text-align: center;
+                font-size: 18px;
+                z-index: 9999;
+                padding: 20px;
+                box-sizing: border-box;
+            }
+            
+            #gameContainer {
+                display: none;
+            }
+        }
+        
+        /* Mobile and Tablet landscape mode */
+        @media (max-width: 1024px) and (orientation: landscape) {
+            #instructions {
+                display: none !important;
+            }
+        }
+        
+        /* Mobile devices (phones) */
+        @media (max-width: 768px) and (orientation: landscape) {
+            #mobileControls {
+                display: flex;
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                justify-content: space-between;
+                align-items: flex-end;
+                padding: 20px;
+                z-index: 200;
+                transform: none;
+            }
+        }
+        
+        /* Tablet devices (iPads, etc.) */
+        @media (min-width: 769px) and (max-width: 1024px) and (orientation: landscape) {
+            #mobileControls {
+                display: flex;
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                justify-content: space-between;
+                align-items: flex-end;
+                padding: 30px;
+                z-index: 200;
+                transform: none;
+            }
+            
+            .control-btn {
+                width: 70px;
+                height: 70px;
+                font-size: 24px;
+            }
+            
+            .control-btn.drift {
+                width: 100px;
+                height: 50px;
+                font-size: 16px;
+            }
+        }
+        
+        /* Desktop only */
+        @media (min-width: 1025px) {
+            #mobileControls {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <div id="ui">
+            <div>Score: <span id="score">0</span></div>
+            <div>Speed: <span id="speed">0</span> km/h</div>
+            <div>Drift Score: <span id="driftScore">0</span></div>
+            <div id="driftStatus" style="color: orange; font-weight: bold;">DRIFT!</div>
+        </div>
+        
+        <div id="instructions">
+            <div>Use ARROW KEYS or WASD to control</div>
+            <div>↑/W: Accelerate</div>
+            <div>↓/S: Brake</div>
+            <div>←/A: Turn Left</div>
+            <div>→/D: Turn Right</div>
+            <div>SPACEBAR: Drift (hold with turn keys)</div>
+            <div>Q/E: Look Left/Right</div>
+            <div>CLICK: Toggle Mouse Look</div>
+            <div>R: Restart</div>
+        </div>
+        
+        <div id="gameOver">
+            <div>Game Over!</div>
+            <div>Final Score: <span id="finalScore">0</span></div>
+            <div>Press R to restart</div>
+        </div>
+        
+        <!-- Mobile Controls -->
+        <div id="mobileControls">
+            <!-- Left side: Movement controls -->
+            <div class="control-group left-controls">
+                <div class="control-row">
+                    <div class="control-btn" id="upBtn">↑</div>
+                </div>
+                <div class="control-row">
+                    <div class="control-btn" id="leftBtn">←</div>
+                    <div class="control-btn" id="downBtn">↓</div>
+                    <div class="control-btn" id="rightBtn">→</div>
+                </div>
+            </div>
+            
+            <!-- Right side: Drift control -->
+            <div class="control-group right-controls">
+                <div class="control-btn drift" id="driftBtn">DRIFT</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>
