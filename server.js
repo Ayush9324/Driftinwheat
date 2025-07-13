@@ -214,6 +214,67 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Player hit player
+    socket.on('playerHitPlayer', (data) => {
+        const player = connectedPlayers.get(socket.id);
+        if (player && player.lobbyCode) {
+            // Send to the specific target player
+            const targetSocket = io.sockets.sockets.get(data.targetPlayerId);
+            if (targetSocket) {
+                targetSocket.emit('playerHit', {
+                    id: socket.id,
+                    damage: data.damage
+                });
+            }
+            
+            // Also broadcast to all players in the lobby
+            socket.to(player.lobbyCode).emit('playerHit', {
+                id: socket.id,
+                targetPlayerId: data.targetPlayerId,
+                damage: data.damage
+            });
+        }
+    });
+
+    // Player hit by deer
+    socket.on('playerHitByDeer', (data) => {
+        const player = connectedPlayers.get(socket.id);
+        if (player && player.lobbyCode) {
+            // Send to the specific target player
+            const targetSocket = io.sockets.sockets.get(data.targetPlayerId);
+            if (targetSocket) {
+                targetSocket.emit('deerHitPlayer', {
+                    damage: data.damage
+                });
+            }
+        }
+    });
+
+    // Player drift trail
+    socket.on('playerDriftTrail', (data) => {
+        const player = connectedPlayers.get(socket.id);
+        if (player && player.lobbyCode) {
+            socket.to(player.lobbyCode).emit('otherPlayerDriftTrail', {
+                id: socket.id,
+                trailData: data
+            });
+        }
+    });
+
+    // Bot update (for deer and other bots)
+    socket.on('botUpdate', (data) => {
+        const player = connectedPlayers.get(socket.id);
+        if (player && player.lobbyCode) {
+            socket.to(player.lobbyCode).emit('botUpdate', {
+                botId: data.botId,
+                position: data.position,
+                rotation: data.rotation,
+                isDead: data.isDead,
+                isMoving: data.isMoving
+            });
+        }
+    });
+
     // Disconnect handling
     socket.on('disconnect', () => {
         const player = connectedPlayers.get(socket.id);
