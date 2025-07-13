@@ -67,32 +67,7 @@
             100% { opacity: 1; }
         }
         
-        #instructions {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            background: transparent;
-            padding: 15px 20px;
-            border-radius: 10px;
-            font-size: 12px;
-            z-index: 100;
-            text-align: right;
-            border: none;
-            backdrop-filter: none;
-            box-shadow: none;
-            max-width: 250px;
-        }
 
-        #instructions div {
-            margin: 3px 0;
-            color: #ccc;
-        }
-
-        #instructions div:first-child {
-            color: #fff;
-            font-weight: bold;
-            margin-bottom: 10px;
-        }
         
         #gameOver {
             position: absolute;
@@ -205,7 +180,24 @@
             z-index: 300;
         }
 
-
+        /* Lobby Code Display */
+        #lobbyCodeDisplay {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 255, 136, 0.2);
+            border: 2px solid #00ff88;
+            border-radius: 10px;
+            padding: 10px 15px;
+            color: #00ff88;
+            font-size: 16px;
+            font-weight: bold;
+            z-index: 500;
+            display: none;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 15px rgba(0, 255, 136, 0.3);
+            text-shadow: 0 0 10px #00ff88;
+        }
 
         /* Portrait orientation warning for mobile and tablet devices */
         @media screen and (orientation: portrait) and (max-width: 1024px) {
@@ -235,9 +227,7 @@
         
         /* Mobile and Tablet landscape mode */
         @media (max-width: 1024px) and (orientation: landscape) {
-            #instructions {
-                display: none !important;
-            }
+            /* Mobile optimizations */
         }
         
         /* Mobile devices (phones) */
@@ -258,8 +248,6 @@
             #driftBtn {
                 display: block;
             }
-            
-
         }
         
         /* Tablet devices (iPads, etc.) */
@@ -292,8 +280,6 @@
             #driftBtn {
                 display: block;
             }
-            
-
         }
         
         /* Start Menu Styles */
@@ -367,6 +353,42 @@
             transform: scale(0.95);
         }
 
+        /* Menu Container Styles */
+        .menu-container {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            height: 100%;
+        }
+        
+        /* Input Field Styles */
+        #joinCodeInput {
+            padding: 15px;
+            font-size: 18px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            text-align: center;
+            width: 200px;
+            outline: none;
+            transition: all 0.2s ease;
+            z-index: 1001;
+            position: relative;
+            pointer-events: auto;
+        }
+        
+        #joinCodeInput:focus {
+            border-color: #00ff88;
+            box-shadow: 0 0 10px rgba(0, 255, 136, 0.3);
+        }
+        
+        #joinCodeInput::placeholder {
+            color: rgba(255, 255, 255, 0.7);
+        }
+
         /* Desktop only */
         @media (min-width: 1025px) {
             #mobileControls {
@@ -376,10 +398,8 @@
             #driftBtn {
                 display: none;
             }
-            
-
         }
-        
+
         /* Hidden Corner Notice Styles */
         .hidden-corner-notice {
             position: absolute;
@@ -413,24 +433,57 @@
             </div>
         </div>
         
+        <!-- Multiplayer Options -->
+        <div id="multiplayerOptions" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(135deg, rgba(30, 60, 114, 0.6), rgba(42, 82, 152, 0.6)); z-index: 1000; backdrop-filter: blur(10px);">
+            <div class="menu-container">
+                <div class="menu-title">Multiplayer</div>
+                <div class="menu-buttons">
+                    <div class="menu-btn" id="createLobbyBtn">CREATE LOBBY</div>
+                    <div class="menu-btn" id="joinLobbyBtn">JOIN LOBBY</div>
+                    <div class="menu-btn" id="backToMenuBtn">BACK TO MENU</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Lobby Creation UI -->
+        <div id="lobbyUI" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(135deg, rgba(30, 60, 114, 0.6), rgba(42, 82, 152, 0.6)); z-index: 1000; backdrop-filter: blur(10px);">
+            <div class="menu-container">
+                <div class="menu-title">Lobby Created!</div>
+                <div id="lobbyCodeDisplay" style="font-size: 24px; color: #00ff88; margin: 20px 0; text-shadow: 0 0 10px #00ff88;">Lobby Code: ABC123</div>
+                <div id="lobbyPlayerList" style="max-height: 200px; overflow-y: auto; margin: 20px 0;"></div>
+                <div class="menu-buttons">
+                    <div class="menu-btn" id="startLobbyGameBtn">START GAME</div>
+                    <div class="menu-btn" id="cancelLobbyBtn">CANCEL</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Join Lobby UI -->
+        <div id="joinUI" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(135deg, rgba(30, 60, 114, 0.6), rgba(42, 82, 152, 0.6)); z-index: 1000; backdrop-filter: blur(10px);">
+            <div class="menu-container">
+                <div class="menu-title">Join Lobby</div>
+                <div style="margin: 20px 0; position: relative; z-index: 1002;">
+                    <input type="text" id="joinCodeInput" placeholder="Enter 6-digit code" maxlength="6" autocomplete="off">
+                    <div style="font-size: 12px; color: #ccc; margin-top: 5px;">Click here to type the lobby code</div>
+                </div>
+                <div class="menu-buttons">
+                    <div class="menu-btn" id="joinGameBtn">JOIN GAME</div>
+                    <div class="menu-btn" id="backToMultiplayerBtn">BACK</div>
+                </div>
+            </div>
+        </div>
+        
         <div id="ui" style="display: none;">
             <div>Score: <span id="score">0</span></div>
             <div>Speed: <span id="speed">0</span> km/h</div>
             <div>Drift Score: <span id="driftScore">0</span></div>
             <div id="driftStatus" style="color: orange; font-weight: bold;">DRIFT!</div>
+            <div id="multiplayerStatus" style="display: none; color: #00ffff; font-weight: bold; text-shadow: 0 0 10px #00ffff;">Multiplayer: 1 player online</div>
+            <div id="deerHealth" style="display: none; color: #00ff88; font-weight: bold;">Deer Health: 30/30</div>
+            <div id="deerSpitWarning" style="display: none; color: #ff4444; font-weight: bold; text-shadow: 0 0 10px #ff4444; animation: pulse 0.5s infinite;">DEER SPITTING! -100 points if hit!</div>
         </div>
         
-        <div id="instructions">
-            <div>Use ARROW KEYS or WASD to control</div>
-            <div>↑/W: Accelerate</div>
-            <div>↓/S: Brake</div>
-            <div>←/A: Turn Left</div>
-            <div>→/D: Turn Right</div>
-            <div>SPACEBAR: Drift (hold with turn keys)</div>
-            <div>Q/E: Look Left/Right</div>
-            <div>CLICK: Toggle Mouse Look</div>
-            <div>R: Restart</div>
-        </div>
+
         
         <div id="gameOver">
             <div>Game Over!</div>
@@ -455,11 +508,24 @@
             </div>
         </div>
         
+        <!-- Shoot button for mobile -->
+        <div class="control-btn" id="shootBtn" style="display: none; position: fixed; top: 20px; left: 20px; z-index: 300;">SHOOT</div>
+        
+        <!-- Heat Bar -->
+        <div id="heatBar" style="display: none; position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 400; width: 250px; height: 25px; background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 12px; overflow: hidden; backdrop-filter: blur(10px); box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);">
+            <div id="heatBarFill" style="width: 0%; height: 100%; background: linear-gradient(to right, #00ff00, #ffff00, #ff0000); transition: width 0.1s ease; border-radius: 10px;"></div>
+            <div id="heatBarText" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 13px; font-weight: bold; text-shadow: 0 2px 4px rgba(0,0,0,0.8); pointer-events: none;">HEAT: 0%</div>
+        </div>
+        
         <!-- Drift button in top right corner -->
         <div class="control-btn drift" id="driftBtn" style="display: none;">DRIFT</div>
+        
+        <!-- Lobby Code Display -->
+        <div id="lobbyCodeDisplay">Lobby Code: ABC123</div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script src="game.js"></script>
 </body>
 </html>
