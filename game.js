@@ -68,6 +68,12 @@ let deerHealth = 30; // Deer health (30 hits to kill)
 let deerIsDead = false; // Whether deer is currently dead
 let deerDeathAnimation = false; // Whether deer is in death animation
 let deerRespawnTime = 0; // Time until deer respawns
+let deerHitCooldown = 0; // Cooldown to prevent multiple deer hits
+
+// Player health variables
+let playerHealth = 200; // Player health (200 points)
+let playerMaxHealth = 200; // Maximum player health
+let playerHitCooldown = 0; // Cooldown to prevent rapid hits
 
 // Mouse lock variables
 let isMouseLocked = false;
@@ -93,8 +99,9 @@ let playerId = null;
 let otherPlayers = new Map(); // Map of other players by ID
 let socket = null;
 let multiplayerConnected = false;
-let playerName = 'Player' + Math.floor(Math.random() * 1000);
+let playerName = 'Guest';
 let playerColors = [0x3498db, 0xe74c3c, 0x2ecc71, 0xf39c12, 0x9b59b6, 0x1abc9c]; // Different car colors
+let deerBotId = 'deer-bot'; // Special ID for the deer bot
 
 // Lobby management variables
 let lobbyCode = null;
@@ -109,6 +116,18 @@ let playerRotations = new Map(); // Store real player rotations
 let serverUrl = window.location.hostname === 'localhost' ? 'http://localhost:3000' : window.location.origin;
 
 function init() {
+    // Set a fixed seed for consistent map generation across all players
+    Math.seedrandom = function(seed) {
+        return function() {
+            seed = (seed * 9301 + 49297) % 233280;
+            return seed / 233280;
+        };
+    };
+    
+    // Use a fixed seed for consistent map generation
+    const mapSeed = 12345; // Fixed seed for all players
+    Math.random = Math.seedrandom(mapSeed);
+    
     // Ensure start menu is visible by default
     const startMenu = document.getElementById('startMenu');
     if (startMenu) {
@@ -124,8 +143,11 @@ function init() {
     if (lobbyUI) lobbyUI.style.display = 'none';
     if (joinUI) joinUI.style.display = 'none';
     
-    // Detect low-end device
+    // Detect low-end device and device type
     detectLowEndDevice();
+    
+    // Initialize controls based on device type
+    initializeControls();
     
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -361,6 +383,17 @@ function init() {
     // Start menu event listeners
     setupStartMenu();
     setupMultiplayerEventListeners();
+    
+    // Test player name input
+    const playerNameInput = document.getElementById('playerNameInput');
+    if (playerNameInput) {
+        console.log('Player name input found:', playerNameInput);
+        playerNameInput.addEventListener('input', (e) => {
+            console.log('Player name input changed:', e.target.value);
+        });
+    } else {
+        console.log('Player name input not found!');
+    }
 
     animate();
 }
@@ -582,9 +615,10 @@ function setupMobileControls() {
 
     // Touch events for drag look around
     document.addEventListener('touchstart', (e) => {
-        // Only handle drag if not touching control buttons
+        // Only handle drag if not touching control buttons, UI elements, or input fields
         const target = e.target;
-        if (!target.closest('.control-btn') && !target.closest('#ui') && !target.closest('#instructions')) {
+        if (!target.closest('.control-btn') && !target.closest('#ui') && !target.closest('#instructions') && 
+            !target.closest('input') && !target.closest('#playerNameInput') && !target.closest('#joinCodeInput')) {
             isDragging = true;
             lastTouchX = e.touches[0].clientX;
             lastTouchY = e.touches[0].clientY;
@@ -617,7 +651,8 @@ function setupMobileControls() {
     // Mouse events for drag look around (desktop testing)
     document.addEventListener('mousedown', (e) => {
         const target = e.target;
-        if (!target.closest('.control-btn') && !target.closest('#ui') && !target.closest('#instructions')) {
+        if (!target.closest('.control-btn') && !target.closest('#ui') && !target.closest('#instructions') && 
+            !target.closest('input') && !target.closest('#playerNameInput') && !target.closest('#joinCodeInput')) {
             isDragging = true;
             lastTouchX = e.clientX;
             lastTouchY = e.clientY;
@@ -701,10 +736,18 @@ function animate() {
         // Send player updates in multiplayer
         if (isMultiplayer && multiplayerConnected) {
             sendPlayerUpdate();
+            
+            // Also check for grass folding for other players more frequently
+            otherPlayers.forEach((otherPlayer, playerId) => {
+                if (otherPlayer && otherPlayer.userData.speed > 0.01) {
+                    checkGrassFoldingForOtherPlayer(otherPlayer);
+                }
+            });
         }
         
         // Update cooldowns
         carShootCooldown = Math.max(0, carShootCooldown - 0.016);
+        deerHitCooldown = Math.max(0, deerHitCooldown - 1); // Decrease by 1 frame
         
         // Handle continuous shooting
         if (isShooting && carShootCooldown <= 0 && !shootOverheated) {
@@ -733,6 +776,14 @@ function animate() {
                 shootOverheated = false;
                 shootHeatLevel = 0; // Reset heat when cooldown is done
             }
+        }
+    }
+
+    // Make sure the local player's name label always faces the camera
+    if (car) {
+        const nameLabel = car.children.find(child => child.name === 'playerNameLabel');
+        if (nameLabel) {
+            nameLabel.lookAt(camera.position);
         }
     }
 }
@@ -1141,16 +1192,7 @@ function updateCar() {
     
     camera.lookAt(car.position);
 
-    // Only increase score when car is actually moving - slower scoring
-    if (Math.abs(speed) > 0.01 || isDrifting) {
-        const scoreIncrement = Math.floor(speed * 2 + driftScore * 0.1);
-        if (scoreIncrement > 0) {
-            score += scoreIncrement;
-        } else if (Math.abs(speed) > 0.05) {
-            // Ensure minimum score increment for visible progress
-            score += 1;
-        }
-    }
+    // No scoring from just driving - only score from hitting deer (+50) and players (+10)
     
     // Check for grass folding when car moves
     if (Math.abs(speed) > 0.01) {
@@ -1250,24 +1292,6 @@ function createRoadFeatures() {
         );
         scene.add(stain);
         roadDeformations.push(stain);
-    }
-    
-    // Create small rocks/debris
-    for (let i = 0; i < 15; i++) {
-        const rockGeometry = new THREE.SphereGeometry(0.1 + Math.random() * 0.2, 6, 4);
-        const rockMaterial = new THREE.MeshLambertMaterial({ 
-            color: 0x666666
-        });
-        
-        const rock = new THREE.Mesh(rockGeometry, rockMaterial);
-        rock.position.set(
-            (Math.random() - 0.5) * 95,
-            0.1,
-            (Math.random() - 0.5) * 95
-        );
-        rock.castShadow = true;
-        scene.add(rock);
-        roadDeformations.push(rock);
     }
 }
 
@@ -1440,7 +1464,7 @@ function checkCollision(car, obstacle) {
 
 function checkGrassFolding() {
     // Check each grass patch for collision with car
-    grassPatches.forEach(grassPatch => {
+    grassPatches.forEach((grassPatch, index) => {
         if (!grassPatch.userData.isFolded) {
             const distance = car.position.distanceTo(grassPatch.position);
             
@@ -1448,6 +1472,7 @@ function checkGrassFolding() {
             if (distance < 1.5) {
                 // Fold the grass
                 grassPatch.userData.isFolded = true;
+                grassPatch.userData.foldTime = Date.now(); // Track when grass was folded
                 
                 // Calculate fall direction based on car position
                 const directionToCar = new THREE.Vector3();
@@ -1509,6 +1534,137 @@ function checkGrassFolding() {
     });
 }
 
+function checkGrassFoldingForOtherPlayer(otherPlayer) {
+    // Check each grass patch for collision with other player's car
+    grassPatches.forEach((grassPatch, index) => {
+        if (!grassPatch.userData.isFolded) {
+            const distance = otherPlayer.position.distanceTo(grassPatch.position);
+            
+            // If other player's car is close enough to the grass patch
+            if (distance < 1.5) {
+                // Fold the grass
+                grassPatch.userData.isFolded = true;
+                grassPatch.userData.foldTime = Date.now(); // Track when grass was folded
+                
+                // Send grass folding event to other players in multiplayer
+                if (isMultiplayer && multiplayerConnected && socket) {
+                    socket.emit('grassFolded', {
+                        grassIndex: index,
+                        position: grassPatch.position,
+                        originalHeight: grassPatch.userData.originalHeight,
+                        playerId: otherPlayer.userData.id // Include which player caused the fold
+                    });
+                }
+                
+                // Animate the grass falling over from the root
+                const fallAnimation = () => {
+                    if (grassPatch.rotation.z < Math.PI / 2) {
+                        // Rotate the grass to fall over from the base
+                        grassPatch.rotation.z += 0.1;
+                        
+                        // Move the grass down as it falls, keeping the base at ground level
+                        const fallProgress = grassPatch.rotation.z / (Math.PI / 2);
+                        const originalHeight = grassPatch.userData.originalHeight;
+                        const currentHeight = originalHeight * Math.cos(grassPatch.rotation.z);
+                        
+                        grassPatch.position.y = currentHeight / 2;
+                        
+                        requestAnimationFrame(fallAnimation);
+                    } else {
+                        // Ensure it's fully fallen and lying flat
+                        grassPatch.rotation.z = Math.PI / 2;
+                        grassPatch.position.y = 0.01;
+                    }
+                };
+                
+                fallAnimation();
+                
+                // Reset grass after some time (optional)
+                setTimeout(() => {
+                    if (grassPatch.userData.isFolded) {
+                        grassPatch.userData.isFolded = false;
+                        
+                        // Send grass reset event to other players in multiplayer
+                        if (isMultiplayer && multiplayerConnected && socket) {
+                            socket.emit('grassReset', {
+                                grassIndex: index,
+                                position: grassPatch.position,
+                                playerId: otherPlayer.userData.id // Include which player caused the reset
+                            });
+                        }
+                        
+                        // Animate grass standing back up from the root
+                        const standUpAnimation = () => {
+                            if (grassPatch.rotation.z > 0) {
+                                grassPatch.rotation.z -= 0.05;
+                                
+                                // Calculate position as grass stands back up
+                                const originalHeight = grassPatch.userData.originalHeight;
+                                const currentHeight = originalHeight * Math.cos(grassPatch.rotation.z);
+                                grassPatch.position.y = currentHeight / 2;
+                                
+                                requestAnimationFrame(standUpAnimation);
+                            } else {
+                                // Reset to original position
+                                grassPatch.rotation.z = 0;
+                                grassPatch.position.y = grassPatch.userData.originalHeight / 2;
+                            }
+                        };
+                        
+                        standUpAnimation();
+                    }
+                }, 15000); // Reset after 15 seconds
+            }
+        }
+    });
+}
+
+function checkAndSendGrassFoldingEvents() {
+    // Check each grass patch for collision with car
+    grassPatches.forEach((grassPatch, index) => {
+        if (!grassPatch.userData.isFolded) {
+            const distance = car.position.distanceTo(grassPatch.position);
+            
+            // If car is close enough to the grass patch
+            if (distance < 1.5) {
+                // Send grass folding event to other players in multiplayer
+                if (isMultiplayer && multiplayerConnected && socket) {
+                    socket.emit('grassFolded', {
+                        grassIndex: index,
+                        position: grassPatch.position,
+                        originalHeight: grassPatch.userData.originalHeight,
+                        playerId: playerId // Include which player caused the fold
+                    });
+                }
+            }
+        }
+    });
+    
+    // Also check for grass reset events (when grass stands back up)
+    grassPatches.forEach((grassPatch, index) => {
+        if (grassPatch.userData.isFolded && grassPatch.rotation.z >= Math.PI / 2) {
+            // Check if it's time to reset (15 seconds after folding)
+            const timeSinceFolded = Date.now() - (grassPatch.userData.foldTime || 0);
+            if (timeSinceFolded > 15000) {
+                // Send grass reset event to other players in multiplayer
+                if (isMultiplayer && multiplayerConnected && socket) {
+                    socket.emit('grassReset', {
+                        grassIndex: index,
+                        position: grassPatch.position,
+                        playerId: playerId // Include which player caused the reset
+                    });
+                }
+            }
+        }
+    });
+}
+
+function checkAndSendGrassFoldingEventsForOtherPlayer(otherPlayer, playerId) {
+    // This function is now redundant since checkGrassFoldingForOtherPlayer handles event sending
+    // But we'll keep it for backward compatibility and call the main function
+    checkGrassFoldingForOtherPlayer(otherPlayer);
+}
+
 function updateDriftTrail() {
     // Create new trail segments for the rear wheels
     const rearLeftWheel = car.getObjectByName('rearLeft');
@@ -1547,6 +1703,14 @@ function updateDriftTrail() {
             driftTrailMesh.add(rightTrailSegment);
 
             lastCarPosition.copy(car.position);
+            
+            // Send drift trail data to server for multiplayer sync
+            if (multiplayerConnected && socket) {
+                socket.emit('playerDriftTrail', {
+                    leftPos: rearLeftPos,
+                    rightPos: rearRightPos
+                });
+            }
         }
     }
 
@@ -1656,6 +1820,41 @@ function updateUI() {
     } else if (deerHealthDisplay) {
         deerHealthDisplay.style.display = 'none';
     }
+    
+    // Update player health bar
+    const playerHealthBar = document.getElementById('playerHealthBar');
+    const playerHealthBarFill = document.getElementById('playerHealthBarFill');
+    const playerHealthBarText = document.getElementById('playerHealthBarText');
+    
+    if (playerHealthBar && playerHealthBarFill && playerHealthBarText) {
+        // Show health bar in multiplayer
+        if (isMultiplayer) {
+            playerHealthBar.style.display = 'block';
+            
+            // Update health bar fill
+            const healthPercent = (playerHealth / playerMaxHealth) * 100;
+            playerHealthBarFill.style.width = healthPercent + '%';
+            
+            // Update health bar text
+            playerHealthBarText.innerText = `HEALTH: ${playerHealth}/${playerMaxHealth}`;
+            
+            // Change color based on health level
+            if (healthPercent > 60) {
+                playerHealthBarFill.style.background = '#00ff00'; // Green
+            } else if (healthPercent > 30) {
+                playerHealthBarFill.style.background = '#ffff00'; // Yellow
+            } else {
+                playerHealthBarFill.style.background = '#ff0000'; // Red
+            }
+        } else {
+            playerHealthBar.style.display = 'none';
+        }
+    }
+    
+    // Update player hit cooldown
+    if (playerHitCooldown > 0) {
+        playerHitCooldown--;
+    }
 }
 
 function restartGame() {
@@ -1692,6 +1891,26 @@ function restartGame() {
     shootHeatLevel = 0;
     shootOverheated = false;
     shootOverheatCooldown = 0;
+    
+    // Reset player health
+    playerHealth = playerMaxHealth;
+    playerHitCooldown = 0;
+    
+    // Restore UI elements
+    document.getElementById('ui').style.display = 'block';
+    document.getElementById('heatBar').style.display = 'block';
+    
+    // Show controls based on device type
+    if (window.isMobileDevice) {
+        document.getElementById('mobileControls').style.display = 'flex';
+        document.getElementById('driftBtn').style.display = 'block';
+        document.getElementById('shootBtn').style.display = 'block';
+    } else {
+        document.getElementById('mobileControls').style.display = 'none';
+        document.getElementById('driftBtn').style.display = 'none';
+        document.getElementById('shootBtn').style.display = 'none';
+    }
+    
     document.body.style.cursor = 'default';
     document.getElementById('gameOver').style.display = 'none';
 }
@@ -2697,6 +2916,7 @@ function createTrees() {
 function detectLowEndDevice() {
     // Detect low-end devices based on various factors
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const isTablet = /iPad|Android.*Tablet|Tablet/i.test(navigator.userAgent);
     const isSmallScreen = window.innerWidth < 768 || window.innerHeight < 768;
     const hasLowMemory = navigator.deviceMemory && navigator.deviceMemory < 4;
     const hasLowCores = navigator.hardwareConcurrency && navigator.hardwareConcurrency < 4;
@@ -2704,13 +2924,45 @@ function detectLowEndDevice() {
     // Consider device low-end if it meets multiple criteria
     isLowEndDevice = isMobile && (isSmallScreen || hasLowMemory || hasLowCores);
     
+    // Store device type globally for control visibility
+    window.isMobileDevice = isMobile || isTablet;
+    window.isDesktop = !isMobile && !isTablet;
+    
     // Log for debugging
     console.log('Device detection:', {
         isMobile,
+        isTablet,
         isSmallScreen,
         hasLowMemory,
         hasLowCores,
-        isLowEndDevice
+        isLowEndDevice,
+        isMobileDevice: window.isMobileDevice,
+        isDesktop: window.isDesktop
+    });
+}
+
+function initializeControls() {
+    // Initialize control visibility based on device type
+    const mobileControls = document.getElementById('mobileControls');
+    const driftBtn = document.getElementById('driftBtn');
+    const shootBtn = document.getElementById('shootBtn');
+    
+    // Hide all mobile controls by default
+    if (mobileControls) mobileControls.style.display = 'none';
+    if (driftBtn) driftBtn.style.display = 'none';
+    
+    // Show shoot button only on mobile devices
+    if (shootBtn) {
+        if (window.isMobileDevice) {
+            shootBtn.style.display = 'block';
+        } else {
+            shootBtn.style.display = 'none';
+        }
+    }
+    
+    console.log('Controls initialized for device type:', {
+        isMobileDevice: window.isMobileDevice,
+        isDesktop: window.isDesktop
     });
 }
 
@@ -2719,6 +2971,7 @@ function setupStartMenu() {
     const multiplayerBtn = document.getElementById('multiplayerBtn');
     const settingsBtn = document.getElementById('settingsBtn');
     const startMenu = document.getElementById('startMenu');
+    const playerNameInput = document.getElementById('playerNameInput');
 
     // Start button - starts the game
     startBtn.addEventListener('click', () => {
@@ -2749,6 +3002,27 @@ function setupStartMenu() {
         e.preventDefault();
         alert('Settings feature coming soon!');
     });
+
+    // Ensure input field is properly interactive
+    if (playerNameInput) {
+        // Prevent any interference with input field
+        playerNameInput.addEventListener('touchstart', (e) => {
+            e.stopPropagation();
+        });
+        
+        playerNameInput.addEventListener('mousedown', (e) => {
+            e.stopPropagation();
+        });
+        
+        playerNameInput.addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
+        
+        // Focus the input field when the page loads
+        setTimeout(() => {
+            playerNameInput.focus();
+        }, 100);
+    }
 }
 
 function showMultiplayerOptions() {
@@ -2767,6 +3041,37 @@ function showMultiplayerOptions() {
 }
 
 function startMultiplayerGame() {
+    // Get player name from input
+    const playerNameInput = document.getElementById('playerNameInput');
+    console.log('Multiplayer - Player name input value:', playerNameInput ? playerNameInput.value : 'null');
+    if (playerNameInput && playerNameInput.value.trim()) {
+        playerName = playerNameInput.value.trim();
+        console.log('Multiplayer - Setting player name to:', playerName);
+    } else {
+        playerName = 'Guest';
+        console.log('Multiplayer - No player name entered, using Guest');
+    }
+    
+    // Update player name display
+    const playerNameDisplay = document.getElementById('playerNameDisplay');
+    if (playerNameDisplay) {
+        playerNameDisplay.innerText = `Player: ${playerName}`;
+    }
+    
+    // Update local player's name label
+    if (car) {
+        // Remove old name label if it exists
+        const oldLabel = car.children.find(child => child.userData && child.userData.text);
+        if (oldLabel) {
+            car.remove(oldLabel);
+        }
+        
+        // Add new name label
+        const newNameLabel = createPlayerNameLabel(playerName);
+        newNameLabel.name = 'playerNameLabel';
+        car.add(newNameLabel);
+    }
+    
     // Add fade-out animation to start menu
     const startMenu = document.getElementById('startMenu');
     startMenu.classList.add('fade-out');
@@ -2780,10 +3085,16 @@ function startMultiplayerGame() {
         // Show UI elements
         document.getElementById('ui').style.display = 'block';
         document.getElementById('heatBar').style.display = 'block';
-        if (window.innerWidth <= 1024) {
+        document.getElementById('shootBtn').style.display = 'block'; // Always show shoot button
+        
+        // Show mobile controls only on mobile/tablet devices
+        if (window.isMobileDevice) {
             document.getElementById('mobileControls').style.display = 'flex';
             document.getElementById('driftBtn').style.display = 'block';
-            document.getElementById('shootBtn').style.display = 'block';
+        } else {
+            // Hide mobile controls on desktop
+            document.getElementById('mobileControls').style.display = 'none';
+            document.getElementById('driftBtn').style.display = 'none';
         }
         
         // Update multiplayer UI to show lobby code
@@ -2792,6 +3103,37 @@ function startMultiplayerGame() {
 }
 
 function startGame() {
+    // Get player name from input
+    const playerNameInput = document.getElementById('playerNameInput');
+    console.log('Player name input value:', playerNameInput ? playerNameInput.value : 'null');
+    if (playerNameInput && playerNameInput.value.trim()) {
+        playerName = playerNameInput.value.trim();
+        console.log('Setting player name to:', playerName);
+    } else {
+        playerName = 'Guest';
+        console.log('No player name entered, using Guest');
+    }
+    
+    // Update player name display
+    const playerNameDisplay = document.getElementById('playerNameDisplay');
+    if (playerNameDisplay) {
+        playerNameDisplay.innerText = `Player: ${playerName}`;
+    }
+    
+    // Update local player's name label
+    if (car) {
+        // Remove old name label if it exists
+        const oldLabel = car.children.find(child => child.userData && child.userData.text);
+        if (oldLabel) {
+            car.remove(oldLabel);
+        }
+        
+        // Add new name label
+        const newNameLabel = createPlayerNameLabel(playerName);
+        newNameLabel.name = 'playerNameLabel';
+        car.add(newNameLabel);
+    }
+    
     // Add fade-out animation to start menu
     const startMenu = document.getElementById('startMenu');
     startMenu.classList.add('fade-out');
@@ -2804,10 +3146,17 @@ function startGame() {
         // Show UI elements
         document.getElementById('ui').style.display = 'block';
         document.getElementById('heatBar').style.display = 'block';
-        if (window.innerWidth <= 1024) {
+        
+        // Show mobile controls only on mobile/tablet devices
+        if (window.isMobileDevice) {
             document.getElementById('mobileControls').style.display = 'flex';
             document.getElementById('driftBtn').style.display = 'block';
-            document.getElementById('shootBtn').style.display = 'block';
+            document.getElementById('shootBtn').style.display = 'block'; // Show shoot button on mobile
+        } else {
+            // Hide mobile controls on desktop
+            document.getElementById('mobileControls').style.display = 'none';
+            document.getElementById('driftBtn').style.display = 'none';
+            document.getElementById('shootBtn').style.display = 'none'; // Hide shoot button on desktop
         }
         
         // Hide lobby code display for single player
@@ -2927,16 +3276,28 @@ function createDeer() {
         deerLegs.push(leg);
     });
     
-    // Position deer at a random location on the farm
-    const deerX = (Math.random() - 0.5) * 100;
-    const deerZ = (Math.random() - 0.5) * 100;
+    // Position deer at a fixed location for consistent multiplayer experience
+    const deerX = 20; // Fixed X position
+    const deerZ = -30; // Fixed Z position
     deerGroup.position.set(deerX, 0, deerZ);
     
     // Create waypoints for deer movement
     createDeerWaypoints();
     
-    // Set initial target
+    // Set initial target to the first waypoint
     deerTargetPosition.copy(deerWaypoints[0]);
+    
+    // Add deer as a bot player to the multiplayer system
+    if (isMultiplayer) {
+        otherPlayers.set(deerBotId, deerGroup);
+        deerGroup.userData = {
+            id: deerBotId,
+            name: 'Deer Bot',
+            isBot: true,
+            speed: 0,
+            rotation: 0
+        };
+    }
     
     scene.add(deerGroup);
     deer = deerGroup;
@@ -2961,6 +3322,40 @@ function createDeerWaypoints() {
 function updateDeer() {
     if (!deer || !deerGroup || deerIsDead) return;
     
+    // Only the host should control the deer movement in multiplayer
+    if (isMultiplayer && !isHost) {
+        // Non-host players only animate the deer, don't control movement
+        deerMovementTime += 0.016;
+        deerLegAnimationTime += 0.016;
+        
+        // Always animate legs, tail, and ears for visual effect based on movement state
+        if (deerIsMoving) {
+            animateDeerLegs(2.0); // Faster animation for non-host to match movement
+            deerTail.rotation.x = Math.PI / 4 + Math.sin(deerMovementTime * 4) * 0.15;
+            deerEars[0].rotation.x = -Math.PI / 6 + Math.sin(deerMovementTime * 3) * 0.08;
+            deerEars[1].rotation.x = -Math.PI / 6 + Math.sin(deerMovementTime * 3) * 0.08;
+        } else {
+            deerLegs.forEach(leg => {
+                leg.rotation.x = 0;
+            });
+            deerTail.rotation.x = Math.PI / 4 + Math.sin(deerMovementTime * 0.5) * 0.05;
+        }
+        
+        // Always animate ears slightly even when idle
+        deerEars[0].rotation.x = -Math.PI / 6 + Math.sin(deerMovementTime * 0.5) * 0.02;
+        deerEars[1].rotation.x = -Math.PI / 6 + Math.sin(deerMovementTime * 0.5) * 0.02;
+        
+        // Add subtle breathing animation to make deer look alive
+        deerBody.scale.y = 1 + Math.sin(deerMovementTime * 0.3) * 0.02;
+        
+        // Debug: Log movement state for troubleshooting
+        if (deerIsMoving) {
+            console.log('Non-host deer animation: Moving, position:', deerGroup.position);
+        }
+        
+        return;
+    }
+    
     deerMovementTime += 0.016; // Approximate 60fps
     deerLegAnimationTime += 0.016;
     deerSpitCooldown = Math.max(0, deerSpitCooldown - 0.016); // Reduce cooldown
@@ -2974,9 +3369,7 @@ function updateDeer() {
         deerCurrentTarget = (deerCurrentTarget + 1) % deerWaypoints.length;
         deerTargetPosition.copy(deerWaypoints[deerCurrentTarget]);
         
-        // Add some randomness to movement
-        deerTargetPosition.x += (Math.random() - 0.5) * 10;
-        deerTargetPosition.z += (Math.random() - 0.5) * 10;
+        // No randomness for consistent multiplayer experience
     }
     
     // Calculate direction to target
@@ -3026,12 +3419,25 @@ function updateDeer() {
         deerTail.rotation.x = Math.PI / 4 + Math.sin(deerMovementTime * 0.5) * 0.05;
     }
     
-    // Check if car is nearby and make deer run away
-    const distanceToCar = currentPosition.distanceTo(car.position);
-    if (distanceToCar < 15) {
-        // Deer gets scared and runs away from car
+    // Check if any car is nearby and make deer run away from the closest one
+    let closestCar = car;
+    let closestDistance = currentPosition.distanceTo(car.position);
+    
+    // Check all other players' cars
+    if (isMultiplayer) {
+        for (const [playerId, otherPlayer] of otherPlayers) {
+            const distanceToOtherCar = currentPosition.distanceTo(otherPlayer.position);
+            if (distanceToOtherCar < closestDistance) {
+                closestCar = otherPlayer;
+                closestDistance = distanceToOtherCar;
+            }
+        }
+    }
+    
+    if (closestDistance < 15) {
+        // Deer gets scared and runs away from the closest car
         const awayFromCar = new THREE.Vector3();
-        awayFromCar.subVectors(currentPosition, car.position);
+        awayFromCar.subVectors(currentPosition, closestCar.position);
         awayFromCar.y = 0;
         awayFromCar.normalize();
         
@@ -3050,10 +3456,10 @@ function updateDeer() {
         deerTail.rotation.x = Math.PI / 4 + Math.sin(deerMovementTime * 5) * 0.15;
     }
     
-    // Deer spit attack when car is in range and cooldown is ready
-    if (distanceToCar < deerSpitRange && distanceToCar > 5 && deerSpitCooldown <= 0) {
-        // Deer spits at the car with improved accuracy
-        createDeerSpitProjectile();
+    // Deer spit attack when closest car is in range and cooldown is ready
+    if (closestDistance < deerSpitRange && closestDistance > 5 && deerSpitCooldown <= 0) {
+        // Deer spits at the closest car with improved accuracy
+        createDeerSpitProjectile(closestCar);
         deerSpitCooldown = 2; // Reduced from 3 to 2 seconds for more frequent spitting
     }
     
@@ -3064,9 +3470,25 @@ function updateDeer() {
     if (Math.abs(deerGroup.position.z) > 80) {
         deerGroup.position.z = Math.sign(deerGroup.position.z) * 80;
     }
+
+    // Send deer bot position update to server for multiplayer sync (only host sends updates)
+    if (multiplayerConnected && socket && deerGroup && isHost) {
+        // Send updates more frequently when deer is moving
+        const updateInterval = deerIsMoving ? 0.05 : 0.2; // Much more frequent updates
+        if (!deerGroup.userData.lastUpdate || Date.now() - deerGroup.userData.lastUpdate > updateInterval * 1000) {
+            socket.emit('botUpdate', {
+                botId: deerBotId,
+                position: deerGroup.position,
+                rotation: deerGroup.rotation.y,
+                isDead: deerIsDead,
+                isMoving: deerIsMoving
+            });
+            deerGroup.userData.lastUpdate = Date.now();
+        }
+    }
 }
 
-function createDeerSpitProjectile() {
+function createDeerSpitProjectile(targetCar = car) {
     if (!deerGroup) return;
     
     // Create spit projectile (larger sphere with glow effect)
@@ -3098,20 +3520,17 @@ function createDeerSpitProjectile() {
     deerHeadPosition.y += 0.2; // Raise the starting position slightly
     spitProjectile.position.copy(deerHeadPosition);
     
-    // Calculate direction to car with better targeting
+    // Calculate direction to target car with better targeting
     const directionToCar = new THREE.Vector3();
-    directionToCar.subVectors(car.position, deerHeadPosition);
+    directionToCar.subVectors(targetCar.position, deerHeadPosition);
     
     // Adjust target to aim at car's center height
-    const carCenterHeight = car.position.y + 0.3; // Aim at car's center
+    const carCenterHeight = targetCar.position.y + 0.3; // Aim at car's center
     directionToCar.y = carCenterHeight - deerHeadPosition.y;
     
     directionToCar.normalize();
     
-    // Add minimal randomness to the spit trajectory for better accuracy
-    directionToCar.x += (Math.random() - 0.5) * 0.05; // Reduced from 0.1 to 0.05
-    directionToCar.y += (Math.random() - 0.5) * 0.02; // Reduced from 0.05 to 0.02
-    directionToCar.z += (Math.random() - 0.5) * 0.05; // Reduced from 0.1 to 0.05
+    // No randomness for consistent multiplayer experience
     directionToCar.normalize();
     
     // Ensure the projectile aims at the car's height level
@@ -3122,7 +3541,8 @@ function createDeerSpitProjectile() {
         velocity: directionToCar.clone().multiplyScalar(deerSpitSpeed),
         life: 0,
         maxLife: 90, // Increased from 60 to 90 for longer travel distance
-        damage: deerSpitDamage
+        damage: deerSpitDamage,
+        targetCar: targetCar // Store which car this projectile is targeting
     };
     
     scene.add(spitProjectile);
@@ -3181,11 +3601,21 @@ function updateDeerSpitProjectiles() {
         // Apply gravity to projectile
         projectile.userData.velocity.y -= 0.01;
         
-        // Check collision with car
-        const distanceToCar = projectile.position.distanceTo(car.position);
+        // Check collision with target car
+        const targetCar = projectile.userData.targetCar || car;
+        const distanceToCar = projectile.position.distanceTo(targetCar.position);
         if (distanceToCar < 1) {
             // Hit the car!
-            score -= projectile.userData.damage;
+            if (targetCar === car) {
+                // Hit local player
+                score -= projectile.userData.damage;
+            } else if (isMultiplayer && socket) {
+                // Hit other player - send damage event to server
+                socket.emit('playerHitByDeer', {
+                    targetPlayerId: targetCar.userData ? targetCar.userData.id : null,
+                    damage: projectile.userData.damage
+                });
+            }
             
             // Create hit effect (small explosion)
             createSpitHitEffect(projectile.position);
@@ -3357,22 +3787,82 @@ function updateCarBullets() {
         bullet.position.add(bullet.userData.velocity);
         
         // Check collision with deer
-        if (deer && deerGroup && !deerIsDead) {
+        if (deer && deerGroup && !deerIsDead && !bullet.userData.hasHit) {
             const distanceToDeer = bullet.position.distanceTo(deerGroup.position);
             if (distanceToDeer < 1) {
+                // Mark bullet as hit to prevent multiple hits
+                bullet.userData.hasHit = true;
+                
+                console.log('Bullet hit deer! Distance:', distanceToDeer, 'Bullet ID:', bullet.id, 'Score before:', score);
+                
                 // Hit the deer!
                 hitDeer();
+                
+                console.log('Score after hitDeer():', score);
                 
                 // Create hit effect
                 createBulletHitEffect(bullet.position);
                 
-                // Remove bullet
+                // Remove bullet immediately to prevent further collisions
                 scene.remove(bullet);
                 carBullets.splice(i, 1);
                 continue;
             }
         }
         
+        // Check collision with other players in multiplayer (local player's bullets)
+        if (isMultiplayer && !bullet.userData.shooterId && !bullet.userData.hasHit) {
+            for (const [targetPlayerId, otherPlayer] of otherPlayers) {
+                const distanceToPlayer = bullet.position.distanceTo(otherPlayer.position);
+                if (distanceToPlayer < 1) {
+                    // Mark bullet as hit to prevent multiple hits
+                    bullet.userData.hasHit = true;
+                    
+                    console.log('Bullet hit player:', targetPlayerId);
+                    // Award points to the shooter (current player)
+                    score += 10; // +10 points for hitting a player
+                    console.log('Hit player! Score increased by 10. New score:', score);
+                    
+                    // Check for winner (1000 points)
+                    if (score >= 1000 && !gameOver) {
+                        console.log('Winner! Score reached 1000. Showing winner screen.');
+                        showWinnerScreen();
+                        return;
+                    }
+                    
+                    // Send player hit event to server in multiplayer
+                    if (socket) {
+                        console.log('Sending playerHitPlayer event to server');
+                        socket.emit('playerHitPlayer', {
+                            targetPlayerId: targetPlayerId,
+                            damage: 10,
+                            killerName: playerName
+                        });
+                    }
+                    // Create hit effect
+                    createBulletHitEffect(bullet.position);
+                    // Remove bullet
+                    scene.remove(bullet);
+                    carBullets.splice(i, 1);
+                    continue;
+                }
+            }
+        }
+        // Check collision with local player (remote bullets)
+        if (isMultiplayer && bullet.userData.shooterId && bullet.userData.shooterId !== playerId && !bullet.userData.hasHit) {
+            const distanceToMe = bullet.position.distanceTo(car.position);
+            if (distanceToMe < 1) {
+                // Mark bullet as hit to prevent multiple hits
+                bullet.userData.hasHit = true;
+                
+                console.log('Remote bullet hit ME!');
+                playerHitByOtherPlayer();
+                createBulletHitEffect(bullet.position);
+                scene.remove(bullet);
+                carBullets.splice(i, 1);
+                continue;
+            }
+        }
         // Remove bullet if it hits ground or times out
         if (bullet.position.y < 0 || bullet.userData.life >= bullet.userData.maxLife) {
             scene.remove(bullet);
@@ -3384,11 +3874,23 @@ function updateCarBullets() {
 function hitDeer() {
     if (deerIsDead || deerDeathAnimation) return;
     
+    // Add a cooldown to prevent multiple hits in the same frame
+    if (deerHitCooldown > 0) return;
+    deerHitCooldown = 5; // 5 frames cooldown
+    
     // Reduce deer health
     deerHealth--;
     
-    // Award points
-    score += carShootDamage;
+    // Award points for hitting deer
+    score += 50;
+    console.log('Hit deer! Score increased by 50. New score:', score);
+    
+    // Check for winner (1000 points)
+    if (score >= 1000 && !gameOver) {
+        console.log('Winner! Score reached 1000. Showing winner screen.');
+        showWinnerScreen();
+        return;
+    }
     
     // Send deer hit event to server in multiplayer
     if (isMultiplayer && socket) {
@@ -3401,6 +3903,42 @@ function hitDeer() {
     // Check if deer is dead
     if (deerHealth <= 0) {
         killDeer();
+    }
+}
+
+function hitPlayer() {
+    if (playerHitCooldown > 0) return; // Prevent rapid hits
+    
+    // Reduce player health
+    playerHealth -= 10; // 10 damage per hit
+    playerHitCooldown = 30; // 30 frames cooldown (0.5 seconds at 60fps)
+    
+    // Check if player is dead
+    if (playerHealth <= 0) {
+        playerHealth = 0;
+        // Handle player death (could restart game or respawn)
+        console.log('Player died!');
+        showDeathScreen();
+    }
+}
+
+function playerHitByOtherPlayer(killerName = 'another player') {
+    if (playerHitCooldown > 0) return; // Prevent rapid hits
+    
+    console.log('Player hit by other player! Health before:', playerHealth);
+    
+    // Reduce player health
+    playerHealth -= 10; // 10 damage per hit
+    playerHitCooldown = 30; // 30 frames cooldown (0.5 seconds at 60fps)
+    
+    console.log('Player health after hit:', playerHealth);
+    
+    // Check if player is dead
+    if (playerHealth <= 0) {
+        playerHealth = 0;
+        // Handle player death (could restart game or respawn)
+        console.log('Player died!');
+        showDeathScreen(killerName);
     }
 }
 
@@ -3475,15 +4013,35 @@ function respawnDeer() {
         scene.remove(deerGroup);
     }
     
+    // Remove from otherPlayers if it exists
+    if (otherPlayers.has(deerBotId)) {
+        otherPlayers.delete(deerBotId);
+    }
+    
     // Clear arrays
     deerLegs = [];
     deerEyes = [];
     deerEars = [];
     deerSpitProjectiles = [];
     
-    // Create new deer at random location
+    // Create new deer at fixed location (only host creates it)
     setTimeout(() => {
+        if (isMultiplayer && !isHost) {
+            // Non-host players wait for host to create deer
+            return;
+        }
         createDeer();
+        
+        // Send respawn update to server if host
+        if (multiplayerConnected && socket && isHost) {
+            socket.emit('botUpdate', {
+                botId: deerBotId,
+                position: deerGroup.position,
+                rotation: deerGroup.rotation.y,
+                isDead: deerIsDead,
+                isMoving: deerIsMoving
+            });
+        }
     }, 5000); // 5 second delay
 }
 
@@ -3556,11 +4114,35 @@ function createOtherPlayerBullet(otherPlayer, bulletData) {
         velocity: direction.clone().multiplyScalar(bulletData.speed),
         life: 0,
         maxLife: 120,
-        damage: carShootDamage
+        damage: carShootDamage,
+        shooterId: otherPlayer.userData ? otherPlayer.userData.id : null // Mark shooter
     };
     
     scene.add(bullet);
     carBullets.push(bullet);
+}
+
+function createOtherPlayerDriftTrail(otherPlayer, trailData) {
+    // Create drift trail for other player
+    const leftTrailSegment = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.2, 1.2),
+        new THREE.MeshBasicMaterial({ color: 0x222222, transparent: true, opacity: 0.9 })
+    );
+    leftTrailSegment.position.copy(trailData.leftPos);
+    leftTrailSegment.rotation.x = -Math.PI / 2;
+    leftTrailSegment.userData.age = 0;
+    leftTrailSegment.userData.isOtherPlayer = true;
+    driftTrailMesh.add(leftTrailSegment);
+
+    const rightTrailSegment = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.2, 1.2),
+        new THREE.MeshBasicMaterial({ color: 0x222222, transparent: true, opacity: 0.9 })
+    );
+    rightTrailSegment.position.copy(trailData.rightPos);
+    rightTrailSegment.rotation.x = -Math.PI / 2;
+    rightTrailSegment.userData.age = 0;
+    rightTrailSegment.userData.isOtherPlayer = true;
+    driftTrailMesh.add(rightTrailSegment);
 }
 
 function connectToMultiplayer() {
@@ -3672,6 +4254,9 @@ function connectToMultiplayer() {
     socket.on('playerMoved', (data) => {
         const otherPlayer = otherPlayers.get(data.id);
         if (otherPlayer) {
+            // Store previous position to check for grass folding
+            const previousPosition = otherPlayer.position.clone();
+            
             // Smoothly interpolate to new position
             const targetPosition = new THREE.Vector3(
                 data.position.x,
@@ -3685,6 +4270,17 @@ function connectToMultiplayer() {
             // Update player data
             otherPlayer.userData.speed = data.speed;
             otherPlayer.userData.isShooting = data.isShooting;
+            
+            // Check if other player moved enough to potentially fold grass
+            const distanceMoved = previousPosition.distanceTo(otherPlayer.position);
+            if (distanceMoved > 0.05) { // Even more responsive threshold
+                checkGrassFoldingForOtherPlayer(otherPlayer);
+                
+                // Send grass folding events for other players to all clients
+                if (isMultiplayer && multiplayerConnected && socket) {
+                    checkAndSendGrassFoldingEventsForOtherPlayer(otherPlayer, data.id);
+                }
+            }
         }
     });
     
@@ -3702,6 +4298,153 @@ function connectToMultiplayer() {
         // Update deer state for all players
         if (deer && !deerIsDead) {
             hitDeer();
+        }
+    });
+
+    // Handle player hit by other player
+    socket.on('playerHit', (data) => {
+        console.log('Received playerHit event:', data);
+        console.log('Current playerId:', playerId);
+        
+        // Check if this player was hit
+        if (data.id === playerId) {
+            console.log('This player was hit by another player');
+            const killerName = data.killerName || 'another player';
+            playerHitByOtherPlayer(killerName);
+        } else if (data.targetPlayerId === playerId) {
+            console.log('This player was hit by another player (target)');
+            const killerName = data.killerName || 'another player';
+            playerHitByOtherPlayer(killerName);
+        } else {
+            console.log('Another player was hit, not this one');
+        }
+    });
+
+    // Handle player hit by deer
+    socket.on('deerHitPlayer', (data) => {
+        console.log('Received deerHitPlayer event, damage:', data.damage);
+        // Reduce score when hit by deer
+        score -= data.damage;
+        // Create hit effect
+        createSpitHitEffect(car.position);
+    });
+
+    // Handle other player drift trail
+    socket.on('otherPlayerDriftTrail', (data) => {
+        const otherPlayer = otherPlayers.get(data.id);
+        if (otherPlayer) {
+            createOtherPlayerDriftTrail(otherPlayer, data.trailData);
+        }
+    });
+
+    // Handle bot updates (deer and other bots)
+    socket.on('botUpdate', (data) => {
+        if (data.botId === deerBotId) {
+            // If deer doesn't exist yet, create it
+            if (!deer || !deerGroup) {
+                createDeer();
+            }
+            
+                            // Update deer position and state
+                if (deer && deerGroup) {
+                    // Store previous position to detect movement
+                    const previousPosition = deerGroup.position.clone();
+                    
+                    deerGroup.position.copy(data.position);
+                    deerGroup.rotation.y = data.rotation;
+                    deerIsDead = data.isDead;
+                    
+                    // Update deer movement state based on position change
+                    if (data.isMoving !== undefined) {
+                        deerIsMoving = data.isMoving;
+                    } else {
+                        // Auto-detect movement based on position change
+                        const positionChange = previousPosition.distanceTo(data.position);
+                        deerIsMoving = positionChange > 0.02; // Very sensitive threshold
+                    }
+                    
+                    // Force movement state to true if position changed significantly
+                    const positionChange = previousPosition.distanceTo(data.position);
+                    if (positionChange > 0.01) {
+                        deerIsMoving = true;
+                    }
+                    
+                    // Reset animation timers when movement state changes
+                    if (deerIsMoving) {
+                        deerMovementTime = 0;
+                        deerLegAnimationTime = 0;
+                    }
+                    
+                    // Debug log for movement state
+                    if (deerIsMoving) {
+                        console.log('Deer is moving, position:', data.position, 'movement state:', deerIsMoving);
+                    }
+                }
+        }
+    });
+    
+    // Handle grass folding from other players
+    socket.on('grassFolded', (data) => {
+        if (data.grassIndex >= 0 && data.grassIndex < grassPatches.length) {
+            const grassPatch = grassPatches[data.grassIndex];
+            if (grassPatch && !grassPatch.userData.isFolded) {
+                // Fold the grass
+                grassPatch.userData.isFolded = true;
+                grassPatch.userData.foldTime = Date.now(); // Track when grass was folded
+                
+                // Animate the grass falling over from the root
+                const fallAnimation = () => {
+                    if (grassPatch.rotation.z < Math.PI / 2) {
+                        // Rotate the grass to fall over from the base
+                        grassPatch.rotation.z += 0.1;
+                        
+                        // Move the grass down as it falls, keeping the base at ground level
+                        const fallProgress = grassPatch.rotation.z / (Math.PI / 2);
+                        const originalHeight = grassPatch.userData.originalHeight;
+                        const currentHeight = originalHeight * Math.cos(grassPatch.rotation.z);
+                        
+                        grassPatch.position.y = currentHeight / 2;
+                        
+                        requestAnimationFrame(fallAnimation);
+                    } else {
+                        // Ensure it's fully fallen and lying flat
+                        grassPatch.rotation.z = Math.PI / 2;
+                        grassPatch.position.y = 0.01;
+                    }
+                };
+                
+                fallAnimation();
+            }
+        }
+    });
+    
+    // Handle grass reset from other players
+    socket.on('grassReset', (data) => {
+        if (data.grassIndex >= 0 && data.grassIndex < grassPatches.length) {
+            const grassPatch = grassPatches[data.grassIndex];
+            if (grassPatch && grassPatch.userData.isFolded) {
+                grassPatch.userData.isFolded = false;
+                
+                // Animate grass standing back up from the root
+                const standUpAnimation = () => {
+                    if (grassPatch.rotation.z > 0) {
+                        grassPatch.rotation.z -= 0.05;
+                        
+                        // Calculate position as grass stands back up
+                        const originalHeight = grassPatch.userData.originalHeight;
+                        const currentHeight = originalHeight * Math.cos(grassPatch.rotation.z);
+                        grassPatch.position.y = currentHeight / 2;
+                        
+                        requestAnimationFrame(standUpAnimation);
+                    } else {
+                        // Reset to original position
+                        grassPatch.rotation.z = 0;
+                        grassPatch.position.y = grassPatch.userData.originalHeight / 2;
+                    }
+                };
+                
+                standUpAnimation();
+            }
         }
     });
     
@@ -3826,16 +4569,44 @@ function createOtherPlayer(id, name, color = null) {
 }
 
 function createPlayerNameLabel(name) {
-    // Create a simple text label (using a plane with text)
-    const labelGeometry = new THREE.PlaneGeometry(2, 0.5);
+    // Create a canvas to render text
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    canvas.width = 256;
+    canvas.height = 64;
+    
+    // Clear canvas (transparent background)
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Set text style with white color and black outline for visibility
+    context.fillStyle = '#ffffff';
+    context.strokeStyle = '#000000';
+    context.lineWidth = 3;
+    context.font = 'bold 24px Arial';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    
+    // Draw text with outline for better visibility
+    context.strokeText(name, canvas.width / 2, canvas.height / 2);
+    context.fillText(name, canvas.width / 2, canvas.height / 2);
+    
+    // Create texture from canvas
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    
+    // Create plane geometry for the label
+    const labelGeometry = new THREE.PlaneGeometry(3, 0.75);
     const labelMaterial = new THREE.MeshBasicMaterial({
-        color: 0xffffff,
+        map: texture,
         transparent: true,
-        opacity: 0.8
+        opacity: 1.0,
+        side: THREE.DoubleSide
     });
+    
     const label = new THREE.Mesh(labelGeometry, labelMaterial);
-    label.position.set(0, 1.5, 0);
+    label.position.set(0, 2, 0); // Position above the car
     label.userData = { text: name };
+    
     return label;
 }
 
@@ -4027,6 +4798,9 @@ function sendPlayerUpdate() {
         speed: speed,
         isShooting: isShooting
     });
+    
+    // Check for grass folding and send events
+    checkAndSendGrassFoldingEvents();
 }
 
 // simulateOtherPlayerUpdates function removed - now handled by Socket.IO events
@@ -4250,6 +5024,79 @@ function setupMultiplayerEventListeners() {
         
     } else {
         console.log('Join code input field NOT found!');
+    }
+}
+
+function showDeathScreen(killerName = 'another player') {
+    gameOver = true;
+    // Hide UI and controls
+    document.getElementById('ui').style.display = 'none';
+    document.getElementById('heatBar').style.display = 'none';
+    document.getElementById('mobileControls').style.display = 'none';
+    document.getElementById('driftBtn').style.display = 'none';
+    document.getElementById('shootBtn').style.display = 'none';
+    document.body.style.cursor = 'default';
+
+    // Show death screen
+    const deathScreen = document.getElementById('deathScreen');
+    if (deathScreen) {
+        deathScreen.style.display = 'flex';
+        // Set killer name
+        const killerPlayerName = document.getElementById('killerPlayerName');
+        if (killerPlayerName) killerPlayerName.innerText = killerName;
+        // Set final score
+        const deathFinalScore = document.getElementById('deathFinalScore');
+        if (deathFinalScore) deathFinalScore.innerText = score;
+    }
+
+    // Add event listeners for restart and back to menu
+    const restartBtn = document.getElementById('restartAfterDeathBtn');
+    if (restartBtn) {
+        restartBtn.onclick = function() {
+            if (deathScreen) deathScreen.style.display = 'none';
+            restartGame();
+        };
+    }
+    const backToMenuBtn = document.getElementById('backToMenuAfterDeathBtn');
+    if (backToMenuBtn) {
+        backToMenuBtn.onclick = function() {
+            if (deathScreen) deathScreen.style.display = 'none';
+            // Show start menu
+            const startMenu = document.getElementById('startMenu');
+            if (startMenu) startMenu.style.display = 'flex';
+        };
+    }
+}
+
+function showWinnerScreen() {
+    gameOver = true;
+    // Hide UI and controls
+    document.getElementById('ui').style.display = 'none';
+    document.getElementById('heatBar').style.display = 'none';
+    document.getElementById('mobileControls').style.display = 'none';
+    document.getElementById('driftBtn').style.display = 'none';
+    document.getElementById('shootBtn').style.display = 'none';
+    document.body.style.cursor = 'default';
+
+    // Show winner screen
+    const winnerScreen = document.getElementById('winnerScreen');
+    if (winnerScreen) {
+        winnerScreen.style.display = 'flex';
+        // Set winner name
+        const winnerPlayerName = document.getElementById('winnerPlayerName');
+        if (winnerPlayerName) winnerPlayerName.innerText = playerName;
+        // Set final score
+        const winnerFinalScore = document.getElementById('winnerFinalScore');
+        if (winnerFinalScore) winnerFinalScore.innerText = score;
+    }
+
+    // Add event listeners for restart button
+    const restartBtn = document.getElementById('restartAfterWinBtn');
+    if (restartBtn) {
+        restartBtn.onclick = function() {
+            if (winnerScreen) winnerScreen.style.display = 'none';
+            restartGame();
+        };
     }
 }
 
