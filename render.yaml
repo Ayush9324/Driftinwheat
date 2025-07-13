@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: driving-game-multiplayer
+    name: DIW By Ayush
     env: node
     buildCommand: npm install
     startCommand: npm start
