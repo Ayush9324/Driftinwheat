@@ -41,7 +41,89 @@ let treeAnimationTime = 0; // Time for tree animation
 let windParticles = []; // Array to store wind particle objects
 let windAnimationTime = 0; // Time for wind animation
 
+// Deer variables
+let deer = null; // The deer object
+let deerGroup = null; // Group containing all deer parts
+let deerLegs = []; // Array to store deer legs
+let deerHead = null; // Deer head
+let deerBody = null; // Deer body
+let deerTail = null; // Deer tail
+let deerEyes = []; // Deer eyes
+let deerEars = []; // Deer ears
+let deerAntlers = null; // Deer antlers
+let deerMovementTime = 0; // Time for deer movement animation
+let deerTargetPosition = new THREE.Vector3(0, 0, 0); // Target position for deer
+let deerCurrentTarget = 0; // Current target waypoint
+let deerWaypoints = []; // Array of waypoints for deer movement
+let deerSpeed = 0.02; // Deer movement speed
+let deerRotationSpeed = 0.05; // Deer rotation speed
+let deerLegAnimationTime = 0; // Time for leg animation
+let deerIsMoving = false; // Whether deer is currently moving
+let deerSpitCooldown = 0; // Cooldown for deer spitting
+let deerSpitProjectiles = []; // Array to store spit projectiles
+let deerSpitSpeed = 0.8; // Increased from 0.5 to 0.8 for faster and more accurate projectiles
+let deerSpitRange = 35; // Increased from 20 to 35 for longer range
+let deerSpitDamage = 100; // Points deducted when spit hits car
+let deerHealth = 30; // Deer health (30 hits to kill)
+let deerIsDead = false; // Whether deer is currently dead
+let deerDeathAnimation = false; // Whether deer is in death animation
+let deerRespawnTime = 0; // Time until deer respawns
+
+// Mouse lock variables
+let isMouseLocked = false;
+let mouseLockEnabled = true; // Can be toggled
+let mouseSensitivity = 0.002;
+
+// Car shooting variables
+let carBullets = []; // Array to store car bullets
+let carShootCooldown = 0; // Cooldown for car shooting
+let carShootSpeed = 0.8; // Increased from 0.5 to 0.8 for faster bullets
+let carShootDamage = 50; // Points awarded for each hit
+let carShootRange = 50; // Maximum range for car bullets
+let isShooting = false; // Track if shoot key is pressed
+let shootHeatLevel = 0; // Heat level for shooting (0-100)
+let shootHeatIncrease = 2; // Reduced from 5 to 2 for slower overheating
+let shootHeatDecay = 3; // Increased from 2 to 3 for faster heat decay when not shooting
+let shootOverheated = false; // Whether shooting is overheated
+let shootOverheatCooldown = 0; // Cooldown when overheated
+
+// Multiplayer variables
+let isMultiplayer = false;
+let playerId = null;
+let otherPlayers = new Map(); // Map of other players by ID
+let socket = null;
+let multiplayerConnected = false;
+let playerName = 'Player' + Math.floor(Math.random() * 1000);
+let playerColors = [0x3498db, 0xe74c3c, 0x2ecc71, 0xf39c12, 0x9b59b6, 0x1abc9c]; // Different car colors
+
+// Lobby management variables
+let lobbyCode = null;
+let isHost = false;
+let lobbyPlayers = new Map(); // All players in the lobby
+let lobbyState = 'menu'; // 'menu', 'creating', 'joining', 'playing'
+let joinCodeInput = '';
+let playerPositions = new Map(); // Store real player positions
+let playerRotations = new Map(); // Store real player rotations
+
+// Socket.IO connection
+let serverUrl = window.location.hostname === 'localhost' ? 'http://localhost:3000' : window.location.origin;
+
 function init() {
+    // Ensure start menu is visible by default
+    const startMenu = document.getElementById('startMenu');
+    if (startMenu) {
+        startMenu.style.display = 'flex';
+    }
+    
+    // Hide all other menus by default
+    const multiplayerOptions = document.getElementById('multiplayerOptions');
+    const lobbyUI = document.getElementById('lobbyUI');
+    const joinUI = document.getElementById('joinUI');
+    
+    if (multiplayerOptions) multiplayerOptions.style.display = 'none';
+    if (lobbyUI) lobbyUI.style.display = 'none';
+    if (joinUI) joinUI.style.display = 'none';
+    
     // Detect low-end device
     detectLowEndDevice();
     
@@ -219,6 +301,9 @@ function init() {
     // Create visible wind particles around map boundary
     createWindParticles();
 
+    // Create deer
+    createDeer();
+
     // Create wheat field ground
     const groundGeometry = new THREE.PlaneGeometry(200, 200);
     const groundMaterial = new THREE.MeshPhongMaterial({ 
@@ -275,6 +360,7 @@ function init() {
     
     // Start menu event listeners
     setupStartMenu();
+    setupMultiplayerEventListeners();
 
     animate();
 }
@@ -306,6 +392,10 @@ function onKeyDown(event) {
         case ' ': // Spacebar for drift
             driftKey = true;
             break;
+        case 'x':
+        case 'X': // X key for shooting
+            isShooting = true;
+            break;
         case 'r':
             if (gameOver) restartGame();
             break;
@@ -315,28 +405,66 @@ function onKeyDown(event) {
         case 'e': // Look right
             cameraAngle = Math.max(cameraAngle - 0.1, -Math.PI); // Limit to 180 degrees
             break;
+        case 'Escape': // Exit mouse lock
+            if (isMouseLocked) {
+                document.exitPointerLock();
+            }
+            break;
     }
 }
 
 function onDocumentMouseMove(event) {
-    if (!isMouseLookEnabled) return;
+    if (!isMouseLookEnabled || !isMouseLocked) return;
     
     const movementX = event.movementX || 0;
     const movementY = event.movementY || 0;
     
     // Update camera angle based on mouse movement
-    cameraAngle -= movementX * 0.002;
+    cameraAngle -= movementX * mouseSensitivity;
+    
+    // Limit camera angle to prevent over-rotation
+    cameraAngle = Math.max(-Math.PI, Math.min(Math.PI, cameraAngle));
 }
 
 function onDocumentClick(event) {
-    isMouseLookEnabled = !isMouseLookEnabled;
-    if (isMouseLookEnabled) {
+    if (!mouseLockEnabled) return;
+    
+    // Only handle clicks on the game canvas
+    if (event.target === renderer.domElement) {
+        if (!isMouseLocked) {
+            // Request pointer lock
+            renderer.domElement.requestPointerLock();
+        } else {
+            // Exit pointer lock
+            document.exitPointerLock();
+        }
+    }
+}
+
+// Mouse lock event listeners
+document.addEventListener('pointerlockchange', onPointerLockChange, false);
+document.addEventListener('pointerlockerror', onPointerLockError, false);
+
+function onPointerLockChange() {
+    if (document.pointerLockElement === renderer.domElement) {
+        isMouseLocked = true;
+        isMouseLookEnabled = true;
         document.body.style.cursor = 'none';
     } else {
+        isMouseLocked = false;
+        isMouseLookEnabled = false;
         document.body.style.cursor = 'default';
     }
 }
 
+function onPointerLockError() {
+    console.log('Pointer lock failed');
+    isMouseLocked = false;
+    isMouseLookEnabled = false;
+    document.body.style.cursor = 'default';
+}
+
+// Mouse event listeners
 document.addEventListener('mousemove', onDocumentMouseMove, false);
 document.addEventListener('click', onDocumentClick, false);
 
@@ -346,6 +474,7 @@ function setupMobileControls() {
     const leftBtn = document.getElementById('leftBtn');
     const rightBtn = document.getElementById('rightBtn');
     const driftBtn = document.getElementById('driftBtn');
+    const shootBtn = document.getElementById('shootBtn');
 
     // Touch start events
     upBtn.addEventListener('touchstart', (e) => {
@@ -376,6 +505,12 @@ function setupMobileControls() {
         e.preventDefault();
         driftKey = true;
         driftBtn.classList.add('active');
+    });
+    
+    shootBtn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        isShooting = true;
+        shootBtn.classList.add('active');
     });
 
     // Touch end events
@@ -408,6 +543,12 @@ function setupMobileControls() {
         driftKey = false;
         driftBtn.classList.remove('active');
     });
+    
+    shootBtn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        isShooting = false;
+        shootBtn.classList.remove('active');
+    });
 
     // Mouse events for desktop testing
     upBtn.addEventListener('mousedown', () => { moveForward = true; upBtn.classList.add('active'); });
@@ -424,6 +565,15 @@ function setupMobileControls() {
     
     driftBtn.addEventListener('mousedown', () => { driftKey = true; driftBtn.classList.add('active'); });
     driftBtn.addEventListener('mouseup', () => { driftKey = false; driftBtn.classList.remove('active'); });
+    
+    shootBtn.addEventListener('mousedown', () => { 
+        isShooting = true;
+        shootBtn.classList.add('active'); 
+    });
+    shootBtn.addEventListener('mouseup', () => { 
+        isShooting = false;
+        shootBtn.classList.remove('active'); 
+    });
 
     // Drag-based look around for mobile
     let isDragging = false;
@@ -518,6 +668,10 @@ function onKeyUp(event) {
         case ' ': // Spacebar for drift
             driftKey = false;
             break;
+        case 'x':
+        case 'X': // X key for shooting
+            isShooting = false;
+            break;
     }
 }
 
@@ -538,8 +692,48 @@ function animate() {
         updateBirds();
         updateTrees();
         updateWindParticles();
+        updateDeer();
+        updateDeerSpitProjectiles();
+        updateCarBullets();
         updateCornerNotices();
         updateUI();
+        
+        // Send player updates in multiplayer
+        if (isMultiplayer && multiplayerConnected) {
+            sendPlayerUpdate();
+        }
+        
+        // Update cooldowns
+        carShootCooldown = Math.max(0, carShootCooldown - 0.016);
+        
+        // Handle continuous shooting
+        if (isShooting && carShootCooldown <= 0 && !shootOverheated) {
+            createCarBullet();
+            carShootCooldown = 0.1; // Reduced from 0.5 to 0.1 for more continuous shooting
+            
+            // Increase heat level
+            shootHeatLevel = Math.min(100, shootHeatLevel + shootHeatIncrease);
+            
+            // Check if overheated
+            if (shootHeatLevel >= 100) {
+                shootOverheated = true;
+                shootOverheatCooldown = 8; // Increased back to 8 seconds of cooldown
+            }
+        }
+        
+        // Handle heat decay when not shooting
+        if (!isShooting && shootHeatLevel > 0) {
+            shootHeatLevel = Math.max(0, shootHeatLevel - shootHeatDecay);
+        }
+        
+        // Handle overheat cooldown
+        if (shootOverheated) {
+            shootOverheatCooldown = Math.max(0, shootOverheatCooldown - 0.016);
+            if (shootOverheatCooldown <= 0) {
+                shootOverheated = false;
+                shootHeatLevel = 0; // Reset heat when cooldown is done
+            }
+        }
     }
 }
 
@@ -660,7 +854,7 @@ function createWheatFarm() {
         
         // Don't place tall grass too close to spawn point
         if (Math.sqrt(x * x + z * z) > 12) {
-            tallGrassPatch.position.set(x, tallGrassHeight / 2, z);
+             tallGrassPatch.position.set(x, (tallGrassHeight / 2) - 0.2, z); // Moved down by 0.2 units
             tallGrassPatch.castShadow = true;
             tallGrassPatch.receiveShadow = true;
             tallGrassPatch.userData = { type: 'tallGrass', originalHeight: tallGrassHeight, isFolded: false };
@@ -1401,6 +1595,67 @@ function updateUI() {
     } else {
         driftStatus.style.display = 'none';
     }
+    
+    // Update heat bar
+    const heatBarFill = document.getElementById('heatBarFill');
+    const heatBarText = document.getElementById('heatBarText');
+    if (heatBarFill && heatBarText) {
+        heatBarFill.style.width = shootHeatLevel + '%';
+        
+        if (shootOverheated) {
+            const remainingTime = shootOverheatCooldown.toFixed(1);
+            heatBarText.innerText = `OVERHEATED! ${remainingTime}s`;
+            heatBarFill.style.background = '#ff0000';
+            heatBarText.style.color = '#ff4444';
+            heatBarText.style.textShadow = '0 0 10px #ff4444';
+        } else {
+            const heatPercent = Math.round(shootHeatLevel);
+            heatBarText.innerText = `HEAT: ${heatPercent}%`;
+            heatBarText.style.color = 'white';
+            heatBarText.style.textShadow = '0 2px 4px rgba(0,0,0,0.8)';
+            
+            // Change color based on heat level
+            if (shootHeatLevel < 50) {
+                heatBarFill.style.background = '#00ff00'; // Green
+            } else if (shootHeatLevel < 80) {
+                heatBarFill.style.background = '#ffff00'; // Yellow
+            } else {
+                heatBarFill.style.background = '#ff0000'; // Red
+            }
+        }
+    }
+    
+    // Update multiplayer status
+    updateMultiplayerUI();
+    
+    // Show deer spit warning when deer is spitting
+    const deerSpitWarning = document.getElementById('deerSpitWarning');
+    if (deer && deerGroup && !deerIsDead) {
+        const distanceToCar = deerGroup.position.distanceTo(car.position);
+        if (distanceToCar < deerSpitRange && distanceToCar > 5 && deerSpitCooldown <= 0) {
+            if (deerSpitWarning) {
+                deerSpitWarning.style.display = 'block';
+                deerSpitWarning.innerText = 'DEER SPITTING! -100 points if hit!';
+            }
+        } else {
+            if (deerSpitWarning) {
+                deerSpitWarning.style.display = 'none';
+            }
+        }
+    } else {
+        if (deerSpitWarning) {
+            deerSpitWarning.style.display = 'none';
+        }
+    }
+    
+    // Show deer health if deer exists and is not dead
+    const deerHealthDisplay = document.getElementById('deerHealth');
+    if (deerHealthDisplay && deer && !deerIsDead) {
+        deerHealthDisplay.style.display = 'block';
+        deerHealthDisplay.innerText = `Deer Health: ${deerHealth}/30`;
+    } else if (deerHealthDisplay) {
+        deerHealthDisplay.style.display = 'none';
+    }
 }
 
 function restartGame() {
@@ -1430,6 +1685,13 @@ function restartGame() {
             driftTrailMesh.remove(driftTrailMesh.children[0]);
         }
     }
+    // Reset shooting variables
+    isShooting = false;
+    carShootCooldown = 0;
+    carBullets = [];
+    shootHeatLevel = 0;
+    shootOverheated = false;
+    shootOverheatCooldown = 0;
     document.body.style.cursor = 'default';
     document.getElementById('gameOver').style.display = 'none';
 }
@@ -2227,21 +2489,31 @@ function createTrees() {
             // Create tree group to keep trunk and foliage together
             const treeGroup = new THREE.Group();
             
-            // Position trunk
-            trunk.position.set(0, treeSize * 0.2, 0);
+            const trunkHeight = treeSize * 0.4;
+            trunk.position.set(0, trunkHeight / 2, 0); // base at y=0
             trunk.castShadow = true;
             trunk.receiveShadow = true;
-            trunk.userData = { type: 'tree', height: treeSize * 0.4 };
+            trunk.userData = { type: 'tree', height: trunkHeight };
             treeGroup.add(trunk);
             obstacles.push(trunk);
-            
-            // Position foliage on top of trunk (attached to trunk)
-            foliage.position.set(0, treeSize * 0.2 + treeSize * 0.4, 0);
+
+            // Branch
+            const branchHeight = 0.15 * treeSize;
+            const branchGeometry = new THREE.CylinderGeometry(0.08 * treeSize, 0.06 * treeSize, branchHeight, 8);
+            const branchMaterial = new THREE.MeshPhongMaterial({ color: 0x8b5c2a });
+            const branch = new THREE.Mesh(branchGeometry, branchMaterial);
+            branch.position.set(0, trunkHeight + branchHeight / 2, 0);
+            branch.castShadow = true;
+            branch.receiveShadow = true;
+            treeGroup.add(branch);
+
+            // Foliage
+            foliage.position.set(0, trunkHeight + branchHeight + (treeSize * 0.4) / 2, 0);
             foliage.castShadow = true;
             foliage.receiveShadow = true;
             treeGroup.add(foliage);
-            
-            // Position the entire tree group
+
+            // Place tree group on ground
             treeGroup.position.set(x, 0, z);
             scene.add(treeGroup);
             
@@ -2299,21 +2571,32 @@ function createTrees() {
         // Create boundary tree group
         const treeGroup = new THREE.Group();
         
-        // Position trunk
-        trunk.position.set(0, treeSize * 0.25, 0);
+
+        const trunkHeight = treeSize * 0.5;
+        trunk.position.set(0, trunkHeight / 2, 0);
         trunk.castShadow = true;
         trunk.receiveShadow = true;
-        trunk.userData = { type: 'boundaryTree', height: treeSize * 0.5 };
+        trunk.userData = { type: 'boundaryTree', height: trunkHeight };
         treeGroup.add(trunk);
         obstacles.push(trunk);
-        
-        // Position foliage higher up on trunk (attached to trunk)
-        foliage.position.set(0, treeSize * 0.25 + treeSize * 0.7, 0); // Higher position
+
+        // Branch
+        const branchHeight = 0.15 * treeSize;
+        const branchGeometry = new THREE.CylinderGeometry(0.08 * treeSize, 0.06 * treeSize, branchHeight, 8);
+        const branchMaterial = new THREE.MeshPhongMaterial({ color: 0x8b5c2a });
+        const branch = new THREE.Mesh(branchGeometry, branchMaterial);
+        branch.position.set(0, trunkHeight + branchHeight / 2, 0);
+        branch.castShadow = true;
+        branch.receiveShadow = true;
+        treeGroup.add(branch);
+
+        // Foliage
+        foliage.position.set(0, trunkHeight + branchHeight + (treeSize * 0.7) / 2, 0);
         foliage.castShadow = true;
         foliage.receiveShadow = true;
         treeGroup.add(foliage);
-        
-        // Position the entire tree group
+
+        // Place tree group on ground
         treeGroup.position.set(x, 0, z);
         scene.add(treeGroup);
         
@@ -2370,21 +2653,31 @@ function createTrees() {
         // Create mountain tree group
         const treeGroup = new THREE.Group();
         
-        // Position trunk
-        trunk.position.set(0, treeSize * 0.3, 0);
+        const trunkHeight = treeSize * 0.6;
+        trunk.position.set(0, trunkHeight / 2, 0);
         trunk.castShadow = true;
         trunk.receiveShadow = true;
-        trunk.userData = { type: 'mountainTree', height: treeSize * 0.6 };
+        trunk.userData = { type: 'mountainTree', height: trunkHeight };
         treeGroup.add(trunk);
         obstacles.push(trunk);
-        
-        // Position foliage higher up on trunk (attached to trunk)
-        foliage.position.set(0, treeSize * 0.3 + treeSize * 0.8, 0); // Higher position
+
+        // Branch
+        const branchHeight = 0.15 * treeSize;
+        const branchGeometry = new THREE.CylinderGeometry(0.08 * treeSize, 0.06 * treeSize, branchHeight, 8);
+        const branchMaterial = new THREE.MeshPhongMaterial({ color: 0x8b5c2a });
+        const branch = new THREE.Mesh(branchGeometry, branchMaterial);
+        branch.position.set(0, trunkHeight + branchHeight / 2, 0);
+        branch.castShadow = true;
+        branch.receiveShadow = true;
+        treeGroup.add(branch);
+
+        // Foliage
+        foliage.position.set(0, trunkHeight + branchHeight + (treeSize * 0.8) / 2, 0);
         foliage.castShadow = true;
         foliage.receiveShadow = true;
         treeGroup.add(foliage);
-        
-        // Position the entire tree group
+
+        // Place tree group on ground
         treeGroup.position.set(x, 0, z);
         scene.add(treeGroup);
         
@@ -2437,14 +2730,14 @@ function setupStartMenu() {
         startGame();
     });
 
-    // Multiplayer button - placeholder for future feature
+    // Multiplayer button - shows multiplayer options
     multiplayerBtn.addEventListener('click', () => {
-        alert('Multiplayer feature coming soon!');
+        showMultiplayerOptions();
     });
 
     multiplayerBtn.addEventListener('touchstart', (e) => {
         e.preventDefault();
-        alert('Multiplayer feature coming soon!');
+        showMultiplayerOptions();
     });
 
     // Settings button - placeholder for future feature
@@ -2456,6 +2749,46 @@ function setupStartMenu() {
         e.preventDefault();
         alert('Settings feature coming soon!');
     });
+}
+
+function showMultiplayerOptions() {
+    // Hide start menu
+    const startMenu = document.getElementById('startMenu');
+    startMenu.style.display = 'none';
+    
+    // Show multiplayer options
+    const multiplayerOptions = document.getElementById('multiplayerOptions');
+    if (multiplayerOptions) {
+        multiplayerOptions.style.display = 'flex';
+    }
+    
+    // Connect to multiplayer server
+    connectToMultiplayer();
+}
+
+function startMultiplayerGame() {
+    // Add fade-out animation to start menu
+    const startMenu = document.getElementById('startMenu');
+    startMenu.classList.add('fade-out');
+    
+    // Start the game after animation
+    setTimeout(() => {
+        isMultiplayer = true;
+        gameStarted = true;
+        startMenu.style.display = 'none';
+        
+        // Show UI elements
+        document.getElementById('ui').style.display = 'block';
+        document.getElementById('heatBar').style.display = 'block';
+        if (window.innerWidth <= 1024) {
+            document.getElementById('mobileControls').style.display = 'flex';
+            document.getElementById('driftBtn').style.display = 'block';
+            document.getElementById('shootBtn').style.display = 'block';
+        }
+        
+        // Update multiplayer UI to show lobby code
+        updateMultiplayerUI();
+    }, 500); // Match the CSS transition duration
 }
 
 function startGame() {
@@ -2470,11 +2803,1454 @@ function startGame() {
         
         // Show UI elements
         document.getElementById('ui').style.display = 'block';
+        document.getElementById('heatBar').style.display = 'block';
         if (window.innerWidth <= 1024) {
             document.getElementById('mobileControls').style.display = 'flex';
             document.getElementById('driftBtn').style.display = 'block';
+            document.getElementById('shootBtn').style.display = 'block';
+        }
+        
+        // Hide lobby code display for single player
+        const lobbyCodeDisplay = document.getElementById('lobbyCodeDisplay');
+        if (lobbyCodeDisplay) {
+            lobbyCodeDisplay.style.display = 'none';
         }
     }, 500); // Match the CSS transition duration
+}
+
+function createDeer() {
+    // Create deer group to hold all parts
+    deerGroup = new THREE.Group();
+    
+    // Deer body (main body) - using cylinder instead of capsule
+    const bodyGeometry = new THREE.CylinderGeometry(0.4, 0.4, 1.2, 8);
+    const bodyMaterial = new THREE.MeshPhongMaterial({ color: 0x8B4513 }); // Brown
+    deerBody = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    deerBody.position.set(0, 0.8, 0);
+    deerBody.rotation.x = Math.PI / 2; // Rotate 90 degrees to make it horizontal
+    deerBody.castShadow = true;
+    deerBody.receiveShadow = true;
+    deerGroup.add(deerBody);
+    
+    // Deer head - using sphere instead of capsule
+    const headGeometry = new THREE.SphereGeometry(0.25, 8, 6);
+    const headMaterial = new THREE.MeshPhongMaterial({ color: 0x8B4513 });
+    deerHead = new THREE.Mesh(headGeometry, headMaterial);
+    deerHead.position.set(0, 1.1, -0.8);
+    deerHead.rotation.x = Math.PI / 6; // Tilt head slightly down
+    deerHead.castShadow = true;
+    deerHead.receiveShadow = true;
+    deerGroup.add(deerHead);
+    
+    // Deer eyes
+    const eyeGeometry = new THREE.SphereGeometry(0.03, 8, 6);
+    const eyeMaterial = new THREE.MeshPhongMaterial({ color: 0x000000 }); // Black eyes
+    
+    // Left eye
+    const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+    leftEye.position.set(-0.08, 0.05, -0.25);
+    deerHead.add(leftEye);
+    deerEyes.push(leftEye);
+    
+    // Right eye
+    const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+    rightEye.position.set(0.08, 0.05, -0.25);
+    deerHead.add(rightEye);
+    deerEyes.push(rightEye);
+    
+    // Deer ears
+    const earGeometry = new THREE.ConeGeometry(0.05, 0.15, 4);
+    const earMaterial = new THREE.MeshPhongMaterial({ color: 0x8B4513 });
+    
+    // Left ear
+    const leftEar = new THREE.Mesh(earGeometry, earMaterial);
+    leftEar.position.set(-0.12, 0.2, -0.2);
+    leftEar.rotation.x = -Math.PI / 6;
+    leftEar.rotation.z = -Math.PI / 8;
+    deerHead.add(leftEar);
+    deerEars.push(leftEar);
+    
+    // Right ear
+    const rightEar = new THREE.Mesh(earGeometry, earMaterial);
+    rightEar.position.set(0.12, 0.2, -0.2);
+    rightEar.rotation.x = -Math.PI / 6;
+    rightEar.rotation.z = Math.PI / 8;
+    deerHead.add(rightEar);
+    deerEars.push(rightEar);
+    
+    // Deer antlers (simple branched antlers)
+    const antlerGeometry = new THREE.CylinderGeometry(0.02, 0.02, 0.4, 4);
+    const antlerMaterial = new THREE.MeshPhongMaterial({ color: 0x654321 }); // Dark brown
+    
+    deerAntlers = new THREE.Group();
+    
+    // Main antler branches
+    for (let i = 0; i < 3; i++) {
+        const antler = new THREE.Mesh(antlerGeometry, antlerMaterial);
+        antler.position.set(0, 0.2 + i * 0.15, 0);
+        antler.rotation.x = Math.PI / 2;
+        antler.rotation.z = (i - 1) * Math.PI / 6;
+        deerAntlers.add(antler);
+    }
+    
+    deerAntlers.position.set(0, 0.3, -0.1);
+    deerHead.add(deerAntlers);
+    
+    // Deer tail - using cylinder instead of capsule
+    const tailGeometry = new THREE.CylinderGeometry(0.08, 0.08, 0.3, 6);
+    const tailMaterial = new THREE.MeshPhongMaterial({ color: 0x8B4513 });
+    deerTail = new THREE.Mesh(tailGeometry, tailMaterial);
+    deerTail.position.set(0, 0.8, 0.7);
+    deerTail.rotation.x = Math.PI / 4; // Tilt tail up
+    deerTail.castShadow = true;
+    deerTail.receiveShadow = true;
+    deerGroup.add(deerTail);
+    
+    // Deer legs (4 legs)
+    const legGeometry = new THREE.CylinderGeometry(0.08, 0.08, 0.8, 6);
+    const legMaterial = new THREE.MeshPhongMaterial({ color: 0x8B4513 });
+    
+    const legPositions = [
+        { x: -0.25, z: -0.4, name: 'frontLeft' },   // Front left
+        { x: 0.25, z: -0.4, name: 'frontRight' },   // Front right
+        { x: -0.25, z: 0.4, name: 'rearLeft' },     // Rear left
+        { x: 0.25, z: 0.4, name: 'rearRight' }      // Rear right
+    ];
+    
+    legPositions.forEach(legData => {
+        const leg = new THREE.Mesh(legGeometry, legMaterial);
+        leg.position.set(legData.x, 0.4, legData.z);
+        leg.castShadow = true;
+        leg.receiveShadow = true;
+        leg.name = legData.name;
+        deerGroup.add(leg);
+        deerLegs.push(leg);
+    });
+    
+    // Position deer at a random location on the farm
+    const deerX = (Math.random() - 0.5) * 100;
+    const deerZ = (Math.random() - 0.5) * 100;
+    deerGroup.position.set(deerX, 0, deerZ);
+    
+    // Create waypoints for deer movement
+    createDeerWaypoints();
+    
+    // Set initial target
+    deerTargetPosition.copy(deerWaypoints[0]);
+    
+    scene.add(deerGroup);
+    deer = deerGroup;
+}
+
+function createDeerWaypoints() {
+    // Create waypoints around the farm for deer to move between
+    deerWaypoints = [
+        new THREE.Vector3(-30, 0, -20),
+        new THREE.Vector3(20, 0, -40),
+        new THREE.Vector3(40, 0, 10),
+        new THREE.Vector3(10, 0, 30),
+        new THREE.Vector3(-20, 0, 40),
+        new THREE.Vector3(-50, 0, 0),
+        new THREE.Vector3(0, 0, -50),
+        new THREE.Vector3(50, 0, 20),
+        new THREE.Vector3(-40, 0, 30),
+        new THREE.Vector3(30, 0, -30)
+    ];
+}
+
+function updateDeer() {
+    if (!deer || !deerGroup || deerIsDead) return;
+    
+    deerMovementTime += 0.016; // Approximate 60fps
+    deerLegAnimationTime += 0.016;
+    deerSpitCooldown = Math.max(0, deerSpitCooldown - 0.016); // Reduce cooldown
+    
+    // Calculate distance to current target
+    const currentPosition = deerGroup.position;
+    const distanceToTarget = currentPosition.distanceTo(deerTargetPosition);
+    
+    // If close to target, move to next waypoint
+    if (distanceToTarget < 2) {
+        deerCurrentTarget = (deerCurrentTarget + 1) % deerWaypoints.length;
+        deerTargetPosition.copy(deerWaypoints[deerCurrentTarget]);
+        
+        // Add some randomness to movement
+        deerTargetPosition.x += (Math.random() - 0.5) * 10;
+        deerTargetPosition.z += (Math.random() - 0.5) * 10;
+    }
+    
+    // Calculate direction to target
+    const direction = new THREE.Vector3();
+    direction.subVectors(deerTargetPosition, currentPosition);
+    direction.y = 0; // Keep movement on ground plane
+    direction.normalize();
+    
+    // Move deer towards target
+    if (distanceToTarget > 1) {
+        deerIsMoving = true;
+        
+        // Move deer position
+        const movement = direction.clone().multiplyScalar(deerSpeed);
+        deerGroup.position.add(movement);
+        
+        // Rotate deer to face movement direction
+        const targetRotation = Math.atan2(direction.x, direction.z) + Math.PI; // Add PI to face the correct direction
+        const currentRotation = deerGroup.rotation.y;
+        
+        // Smooth rotation
+        let rotationDiff = targetRotation - currentRotation;
+        if (rotationDiff > Math.PI) rotationDiff -= 2 * Math.PI;
+        if (rotationDiff < -Math.PI) rotationDiff += 2 * Math.PI;
+        
+        deerGroup.rotation.y += rotationDiff * deerRotationSpeed;
+        
+        // Animate legs when moving
+        animateDeerLegs();
+        
+        // Animate tail wagging
+        deerTail.rotation.x = Math.PI / 4 + Math.sin(deerMovementTime * 3) * 0.1;
+        
+        // Animate ears slightly
+        deerEars[0].rotation.x = -Math.PI / 6 + Math.sin(deerMovementTime * 2) * 0.05;
+        deerEars[1].rotation.x = -Math.PI / 6 + Math.sin(deerMovementTime * 2) * 0.05;
+        
+    } else {
+        deerIsMoving = false;
+        
+        // Reset leg positions when not moving
+        deerLegs.forEach(leg => {
+            leg.rotation.x = 0;
+        });
+        
+        // Gentle tail movement when idle
+        deerTail.rotation.x = Math.PI / 4 + Math.sin(deerMovementTime * 0.5) * 0.05;
+    }
+    
+    // Check if car is nearby and make deer run away
+    const distanceToCar = currentPosition.distanceTo(car.position);
+    if (distanceToCar < 15) {
+        // Deer gets scared and runs away from car
+        const awayFromCar = new THREE.Vector3();
+        awayFromCar.subVectors(currentPosition, car.position);
+        awayFromCar.y = 0;
+        awayFromCar.normalize();
+        
+        // Move deer away from car faster
+        const escapeMovement = awayFromCar.clone().multiplyScalar(deerSpeed * 8); // Increased from 3 to 8 for much faster escape
+        deerGroup.position.add(escapeMovement);
+        
+        // Rotate deer to face escape direction
+        const escapeRotation = Math.atan2(awayFromCar.x, awayFromCar.z) + Math.PI; // Add PI to face the correct direction
+        deerGroup.rotation.y = escapeRotation;
+        
+        // Animate legs faster when escaping
+        animateDeerLegs(4); // Increased from 2 to 4 for faster leg movement when escaping
+        
+        // Animate tail more when scared
+        deerTail.rotation.x = Math.PI / 4 + Math.sin(deerMovementTime * 5) * 0.15;
+    }
+    
+    // Deer spit attack when car is in range and cooldown is ready
+    if (distanceToCar < deerSpitRange && distanceToCar > 5 && deerSpitCooldown <= 0) {
+        // Deer spits at the car with improved accuracy
+        createDeerSpitProjectile();
+        deerSpitCooldown = 2; // Reduced from 3 to 2 seconds for more frequent spitting
+    }
+    
+    // Keep deer within map boundaries
+    if (Math.abs(deerGroup.position.x) > 80) {
+        deerGroup.position.x = Math.sign(deerGroup.position.x) * 80;
+    }
+    if (Math.abs(deerGroup.position.z) > 80) {
+        deerGroup.position.z = Math.sign(deerGroup.position.z) * 80;
+    }
+}
+
+function createDeerSpitProjectile() {
+    if (!deerGroup) return;
+    
+    // Create spit projectile (larger sphere with glow effect)
+    const spitGeometry = new THREE.SphereGeometry(0.15, 8, 6); // Increased size from 0.1 to 0.15
+    const spitMaterial = new THREE.MeshPhongMaterial({ 
+        color: 0x90EE90, // Light green spit
+        transparent: true,
+        opacity: 0.9, // Increased opacity
+        emissive: 0x45EE45, // Add glow effect
+        emissiveIntensity: 0.3
+    });
+    const spitProjectile = new THREE.Mesh(spitGeometry, spitMaterial);
+    
+    // Add a glow ring around the spit projectile
+    const glowGeometry = new THREE.RingGeometry(0.2, 0.25, 8);
+    const glowMaterial = new THREE.MeshBasicMaterial({ 
+        color: 0x90EE90,
+        transparent: true,
+        opacity: 0.6,
+        side: THREE.DoubleSide
+    });
+    const glowRing = new THREE.Mesh(glowGeometry, glowMaterial);
+    glowRing.rotation.x = Math.PI / 2; // Make it horizontal
+    spitProjectile.add(glowRing);
+    
+    // Position spit at deer's mouth (head position)
+    const deerHeadPosition = new THREE.Vector3();
+    deerHead.getWorldPosition(deerHeadPosition);
+    deerHeadPosition.y += 0.2; // Raise the starting position slightly
+    spitProjectile.position.copy(deerHeadPosition);
+    
+    // Calculate direction to car with better targeting
+    const directionToCar = new THREE.Vector3();
+    directionToCar.subVectors(car.position, deerHeadPosition);
+    
+    // Adjust target to aim at car's center height
+    const carCenterHeight = car.position.y + 0.3; // Aim at car's center
+    directionToCar.y = carCenterHeight - deerHeadPosition.y;
+    
+    directionToCar.normalize();
+    
+    // Add minimal randomness to the spit trajectory for better accuracy
+    directionToCar.x += (Math.random() - 0.5) * 0.05; // Reduced from 0.1 to 0.05
+    directionToCar.y += (Math.random() - 0.5) * 0.02; // Reduced from 0.05 to 0.02
+    directionToCar.z += (Math.random() - 0.5) * 0.05; // Reduced from 0.1 to 0.05
+    directionToCar.normalize();
+    
+    // Ensure the projectile aims at the car's height level
+    directionToCar.y = Math.max(0, directionToCar.y); // Keep it horizontal or slightly upward
+    
+    // Store projectile data
+    spitProjectile.userData = {
+        velocity: directionToCar.clone().multiplyScalar(deerSpitSpeed),
+        life: 0,
+        maxLife: 90, // Increased from 60 to 90 for longer travel distance
+        damage: deerSpitDamage
+    };
+    
+    scene.add(spitProjectile);
+    deerSpitProjectiles.push(spitProjectile);
+    
+    // Add spit animation to deer head
+    animateDeerSpit();
+}
+
+function animateDeerSpit() {
+    if (!deerHead) return;
+    
+    // Store original head position
+    const originalPosition = deerHead.position.clone();
+    const originalRotation = deerHead.rotation.clone();
+    
+    // Spit animation sequence
+    let animationStep = 0;
+    const totalSteps = 10;
+    
+    const spitAnimation = () => {
+        if (animationStep >= totalSteps) {
+            // Reset head position
+            deerHead.position.copy(originalPosition);
+            deerHead.rotation.copy(originalRotation);
+            return;
+        }
+        
+        const progress = animationStep / totalSteps;
+        const spitMotion = Math.sin(progress * Math.PI * 2) * 0.1; // Back and forth motion
+        
+        // Move head back and forth like spitting
+        deerHead.position.z = originalPosition.z + spitMotion;
+        deerHead.rotation.x = originalRotation.x + spitMotion * 0.5;
+        
+        animationStep++;
+        requestAnimationFrame(spitAnimation);
+    };
+    
+    spitAnimation();
+}
+
+function updateDeerSpitProjectiles() {
+    // Update all spit projectiles
+    for (let i = deerSpitProjectiles.length - 1; i >= 0; i--) {
+        const projectile = deerSpitProjectiles[i];
+        
+        if (!projectile.userData) continue;
+        
+        // Update projectile life
+        projectile.userData.life += 1;
+        
+        // Move projectile
+        projectile.position.add(projectile.userData.velocity);
+        
+        // Apply gravity to projectile
+        projectile.userData.velocity.y -= 0.01;
+        
+        // Check collision with car
+        const distanceToCar = projectile.position.distanceTo(car.position);
+        if (distanceToCar < 1) {
+            // Hit the car!
+            score -= projectile.userData.damage;
+            
+            // Create hit effect (small explosion)
+            createSpitHitEffect(projectile.position);
+            
+            // Remove projectile
+            scene.remove(projectile);
+            deerSpitProjectiles.splice(i, 1);
+            continue;
+        }
+        
+        // Remove projectile if it hits ground or times out
+        if (projectile.position.y < 0 || projectile.userData.life >= projectile.userData.maxLife) {
+            scene.remove(projectile);
+            deerSpitProjectiles.splice(i, 1);
+        }
+    }
+}
+
+function createSpitHitEffect(position) {
+    // Create a small explosion effect when spit hits the car
+    for (let i = 0; i < 12; i++) { // Increased from 8 to 12 particles
+        const particleGeometry = new THREE.SphereGeometry(0.05, 4, 4);
+        const particleMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0x90EE90, // Light green
+            transparent: true,
+            opacity: 0.7
+        });
+        const particle = new THREE.Mesh(particleGeometry, particleMaterial);
+        
+        // Position particles around hit point
+        const angle = (i / 12) * Math.PI * 2;
+        const radius = 0.5 + Math.random() * 0.5;
+        particle.position.set(
+            position.x + Math.cos(angle) * radius,
+            position.y + Math.random() * 0.5,
+            position.z + Math.sin(angle) * radius
+        );
+        
+        particle.userData = {
+            velocity: new THREE.Vector3(
+                (Math.random() - 0.5) * 0.3, // Increased velocity
+                Math.random() * 0.4, // More upward movement
+                (Math.random() - 0.5) * 0.3
+            ),
+            life: 0,
+            maxLife: 40 // Increased life
+        };
+        
+        scene.add(particle);
+        
+        // Remove particle after animation
+        setTimeout(() => {
+            if (particle.parent) {
+                scene.remove(particle);
+            }
+        }, 700); // Increased duration
+    }
+    
+    // Add screen flash effect
+    createScreenFlash();
+}
+
+function createScreenFlash() {
+    // Create a temporary flash overlay
+    const flashOverlay = document.createElement('div');
+    flashOverlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(255, 68, 68, 0.3);
+        z-index: 1000;
+        pointer-events: none;
+        transition: opacity 0.2s ease;
+    `;
+    
+    document.body.appendChild(flashOverlay);
+    
+    // Flash effect
+    setTimeout(() => {
+        flashOverlay.style.opacity = '0';
+        setTimeout(() => {
+            if (flashOverlay.parentNode) {
+                flashOverlay.parentNode.removeChild(flashOverlay);
+            }
+        }, 200);
+    }, 100);
+}
+
+function animateDeerLegs(speedMultiplier = 1) {
+    if (!deerLegs.length) return;
+    
+    const legSpeed = deerLegAnimationTime * 4 * speedMultiplier;
+    
+    // Animate front legs (opposite phase)
+    deerLegs[0].rotation.x = Math.sin(legSpeed) * 0.3; // Front left
+    deerLegs[1].rotation.x = Math.sin(legSpeed + Math.PI) * 0.3; // Front right
+    
+    // Animate rear legs (opposite phase from front)
+    deerLegs[2].rotation.x = Math.sin(legSpeed + Math.PI) * 0.3; // Rear left
+    deerLegs[3].rotation.x = Math.sin(legSpeed) * 0.3; // Rear right
+}
+
+function createCarBullet() {
+    if (!car) return;
+    
+    // Create bullet projectile (small sphere)
+    const bulletGeometry = new THREE.SphereGeometry(0.08, 6, 4);
+    const bulletMaterial = new THREE.MeshPhongMaterial({ 
+        color: 0xFFD700, // Gold bullet
+        transparent: true,
+        opacity: 0.9,
+        emissive: 0xFFA500, // Orange glow
+        emissiveIntensity: 0.4
+    });
+    const bullet = new THREE.Mesh(bulletGeometry, bulletMaterial);
+    
+    // Position bullet at car's front (headlight position)
+    const bulletPosition = new THREE.Vector3();
+    bulletPosition.copy(car.position);
+    bulletPosition.y += 0.3; // Slightly above car
+    
+    // Calculate forward direction based on car rotation
+    const forwardDirection = new THREE.Vector3(0, 0, -1);
+    forwardDirection.applyQuaternion(car.quaternion);
+    forwardDirection.y = 0; // Keep bullet horizontal
+    forwardDirection.normalize();
+    
+    // Add less spread to bullets for more accurate shooting
+    forwardDirection.x += (Math.random() - 0.5) * 0.05; // Reduced from 0.1 to 0.05
+    forwardDirection.z += (Math.random() - 0.5) * 0.05; // Reduced from 0.1 to 0.05
+    forwardDirection.normalize();
+    
+    bullet.position.copy(bulletPosition);
+    
+    // Store bullet data
+    bullet.userData = {
+        velocity: forwardDirection.clone().multiplyScalar(carShootSpeed),
+        life: 0,
+        maxLife: 120, // 2 seconds at 60fps
+        damage: carShootDamage
+    };
+    
+    scene.add(bullet);
+    carBullets.push(bullet);
+    
+    // Send shooting event to server in multiplayer
+    if (isMultiplayer && socket) {
+        socket.emit('playerShoot', {
+            position: bulletPosition,
+            direction: forwardDirection,
+            speed: carShootSpeed
+        });
+    }
+}
+
+function updateCarBullets() {
+    // Update all car bullets
+    for (let i = carBullets.length - 1; i >= 0; i--) {
+        const bullet = carBullets[i];
+        
+        if (!bullet.userData) continue;
+        
+        // Update bullet life
+        bullet.userData.life += 1;
+        
+        // Move bullet
+        bullet.position.add(bullet.userData.velocity);
+        
+        // Check collision with deer
+        if (deer && deerGroup && !deerIsDead) {
+            const distanceToDeer = bullet.position.distanceTo(deerGroup.position);
+            if (distanceToDeer < 1) {
+                // Hit the deer!
+                hitDeer();
+                
+                // Create hit effect
+                createBulletHitEffect(bullet.position);
+                
+                // Remove bullet
+                scene.remove(bullet);
+                carBullets.splice(i, 1);
+                continue;
+            }
+        }
+        
+        // Remove bullet if it hits ground or times out
+        if (bullet.position.y < 0 || bullet.userData.life >= bullet.userData.maxLife) {
+            scene.remove(bullet);
+            carBullets.splice(i, 1);
+        }
+    }
+}
+
+function hitDeer() {
+    if (deerIsDead || deerDeathAnimation) return;
+    
+    // Reduce deer health
+    deerHealth--;
+    
+    // Award points
+    score += carShootDamage;
+    
+    // Send deer hit event to server in multiplayer
+    if (isMultiplayer && socket) {
+        socket.emit('playerHitDeer', {
+            deerHealth: deerHealth,
+            damage: carShootDamage
+        });
+    }
+    
+    // Check if deer is dead
+    if (deerHealth <= 0) {
+        killDeer();
+    }
+}
+
+function killDeer() {
+    if (deerIsDead || deerDeathAnimation) return;
+    
+    deerIsDead = true;
+    deerDeathAnimation = true;
+    
+    // Start death animation (folding like grass)
+    animateDeerDeath();
+}
+
+function animateDeerDeath() {
+    if (!deerGroup) return;
+    
+    // Store original positions and rotations
+    const originalPositions = [];
+    const originalRotations = [];
+    
+    // Store all deer parts
+    const deerParts = [deerBody, deerHead, deerTail, ...deerLegs, ...deerEars, deerAntlers];
+    deerParts.forEach(part => {
+        if (part) {
+            originalPositions.push(part.position.clone());
+            originalRotations.push(part.rotation.clone());
+        }
+    });
+    
+    // Death animation sequence
+    let animationStep = 0;
+    const totalSteps = 30;
+    
+    const deathAnimation = () => {
+        if (animationStep >= totalSteps) {
+            // Animation complete, respawn deer
+            respawnDeer();
+            return;
+        }
+        
+        const progress = animationStep / totalSteps;
+        const fallProgress = Math.sin(progress * Math.PI / 2); // Smooth fall
+        
+        // Animate each part falling
+        deerParts.forEach((part, index) => {
+            if (part && originalPositions[index]) {
+                // Rotate part to fall over
+                part.rotation.z = originalRotations[index].z + fallProgress * Math.PI / 2;
+                
+                // Move part down as it falls
+                const originalY = originalPositions[index].y;
+                part.position.y = originalY - fallProgress * 0.5;
+            }
+        });
+        
+        animationStep++;
+        requestAnimationFrame(deathAnimation);
+    };
+    
+    deathAnimation();
+}
+
+function respawnDeer() {
+    // Reset deer state
+    deerIsDead = false;
+    deerDeathAnimation = false;
+    deerHealth = 30;
+    deerRespawnTime = 5; // 5 seconds until respawn
+    
+    // Remove old deer
+    if (deerGroup && deerGroup.parent) {
+        scene.remove(deerGroup);
+    }
+    
+    // Clear arrays
+    deerLegs = [];
+    deerEyes = [];
+    deerEars = [];
+    deerSpitProjectiles = [];
+    
+    // Create new deer at random location
+    setTimeout(() => {
+        createDeer();
+    }, 5000); // 5 second delay
+}
+
+function createBulletHitEffect(position) {
+    // Create a small explosion effect when bullet hits deer
+    for (let i = 0; i < 6; i++) {
+        const particleGeometry = new THREE.SphereGeometry(0.03, 4, 4);
+        const particleMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0xFFD700, // Gold
+            transparent: true,
+            opacity: 0.8
+        });
+        const particle = new THREE.Mesh(particleGeometry, particleMaterial);
+        
+        // Position particles around hit point
+        const angle = (i / 6) * Math.PI * 2;
+        const radius = 0.3 + Math.random() * 0.3;
+        particle.position.set(
+            position.x + Math.cos(angle) * radius,
+            position.y + Math.random() * 0.3,
+            position.z + Math.sin(angle) * radius
+        );
+        
+        particle.userData = {
+            velocity: new THREE.Vector3(
+                (Math.random() - 0.5) * 0.2,
+                Math.random() * 0.2,
+                (Math.random() - 0.5) * 0.2
+            ),
+            life: 0,
+            maxLife: 20
+        };
+        
+        scene.add(particle);
+        
+        // Remove particle after animation
+        setTimeout(() => {
+            if (particle.parent) {
+                scene.remove(particle);
+            }
+        }, 400);
+    }
+}
+
+function createOtherPlayerBullet(otherPlayer, bulletData) {
+    // Create bullet for other player's shooting
+    const bulletGeometry = new THREE.SphereGeometry(0.08, 6, 4);
+    const bulletMaterial = new THREE.MeshPhongMaterial({ 
+        color: 0xFFD700, // Gold bullet
+        transparent: true,
+        opacity: 0.9,
+        emissive: 0xFFA500, // Orange glow
+        emissiveIntensity: 0.4
+    });
+    const bullet = new THREE.Mesh(bulletGeometry, bulletMaterial);
+    
+    // Position bullet at other player's car
+    bullet.position.copy(otherPlayer.position);
+    bullet.position.y += 0.3;
+    
+    // Calculate direction from bullet data
+    const direction = new THREE.Vector3(
+        bulletData.direction.x,
+        bulletData.direction.y,
+        bulletData.direction.z
+    );
+    
+    // Store bullet data
+    bullet.userData = {
+        velocity: direction.clone().multiplyScalar(bulletData.speed),
+        life: 0,
+        maxLife: 120,
+        damage: carShootDamage
+    };
+    
+    scene.add(bullet);
+    carBullets.push(bullet);
+}
+
+function connectToMultiplayer() {
+    if (socket) {
+        socket.disconnect();
+    }
+    
+    console.log('Connecting to multiplayer server...');
+    
+    // Connect to Socket.IO server
+    socket = io(serverUrl);
+    
+    socket.on('connect', () => {
+        multiplayerConnected = true;
+        playerId = socket.id;
+        console.log('Connected to multiplayer server! Player ID:', playerId);
+        updateMultiplayerUI();
+    });
+    
+    socket.on('disconnect', () => {
+        multiplayerConnected = false;
+        console.log('Disconnected from multiplayer server');
+        updateMultiplayerUI();
+    });
+    
+    // Handle lobby creation response
+    socket.on('lobbyCreated', (data) => {
+        lobbyCode = data.code;
+        console.log('Lobby created:', lobbyCode);
+        
+        // Add all players to lobby
+        data.players.forEach(player => {
+            lobbyPlayers.set(player.id, player);
+            if (player.id !== playerId) {
+                createOtherPlayer(player.id, player.name, player.color);
+            }
+        });
+        
+        updateLobbyPlayerList();
+        showLobbyCreationUI();
+    });
+    
+    // Handle lobby join response
+    socket.on('playerJoined', (data) => {
+        console.log('Player joined:', data.player.name);
+        
+        // Add new player to lobby
+        lobbyPlayers.set(data.player.id, data.player);
+        
+        // Create other player car if not self
+        if (data.player.id !== playerId) {
+            createOtherPlayer(data.player.id, data.player.name, data.player.color);
+        }
+        
+        updateLobbyPlayerList();
+    });
+    
+    // Handle lobby errors
+    socket.on('lobbyError', (data) => {
+        console.log('Lobby error:', data.message);
+        alert('Lobby error: ' + data.message);
+    });
+    
+    // Handle late join (when game has already started)
+    socket.on('lateJoin', (data) => {
+        console.log('Late join:', data.message);
+        
+        // Create other players that are already in the game
+        data.players.forEach(player => {
+            if (player.id !== playerId) {
+                createOtherPlayer(player.id, player.name, player.color);
+            }
+        });
+        
+        // Hide lobby UI and start game immediately
+        const lobbyUI = document.getElementById('lobbyUI');
+        if (lobbyUI) {
+            lobbyUI.style.display = 'none';
+        }
+        
+        // Start the multiplayer game
+        startMultiplayerGame();
+        
+        // Show a notification
+        alert('Game already started! Joining as late player.');
+    });
+    
+    // Handle game start
+    socket.on('gameStarted', (data) => {
+        console.log('Game started with players:', data.players);
+        
+        // Create other players
+        data.players.forEach(player => {
+            if (player.id !== playerId) {
+                createOtherPlayer(player.id, player.name, player.color);
+            }
+        });
+        
+        // Hide lobby UI and start game
+        const lobbyUI = document.getElementById('lobbyUI');
+        if (lobbyUI) {
+            lobbyUI.style.display = 'none';
+        }
+        
+        startMultiplayerGame();
+    });
+    
+    // Handle player movement updates
+    socket.on('playerMoved', (data) => {
+        const otherPlayer = otherPlayers.get(data.id);
+        if (otherPlayer) {
+            // Smoothly interpolate to new position
+            const targetPosition = new THREE.Vector3(
+                data.position.x,
+                data.position.y,
+                data.position.z
+            );
+            
+            otherPlayer.position.lerp(targetPosition, 0.1);
+            otherPlayer.rotation.y = data.rotation;
+            
+            // Update player data
+            otherPlayer.userData.speed = data.speed;
+            otherPlayer.userData.isShooting = data.isShooting;
+        }
+    });
+    
+    // Handle player shooting
+    socket.on('playerShot', (data) => {
+        const otherPlayer = otherPlayers.get(data.id);
+        if (otherPlayer) {
+            // Create bullet effect for other player
+            createOtherPlayerBullet(otherPlayer, data.bulletData);
+        }
+    });
+    
+    // Handle deer hit by other player
+    socket.on('deerHit', (data) => {
+        // Update deer state for all players
+        if (deer && !deerIsDead) {
+            hitDeer();
+        }
+    });
+    
+    // Handle player leaving
+    socket.on('playerLeft', (data) => {
+        console.log('Player left:', data.id);
+        
+        // Remove player from lobby
+        lobbyPlayers.delete(data.id);
+        
+        // Remove other player car
+        const otherPlayer = otherPlayers.get(data.id);
+        if (otherPlayer) {
+            scene.remove(otherPlayer);
+            otherPlayers.delete(data.id);
+        }
+        
+        updateLobbyPlayerList();
+    });
+    
+    // Handle new host assignment
+    socket.on('newHost', (data) => {
+        console.log('New host assigned:', data.hostId);
+        if (data.hostId === playerId) {
+            isHost = true;
+            console.log('You are now the host!');
+        }
+    });
+}
+
+// Mock players function removed - now using real Socket.IO multiplayer
+
+function createOtherPlayer(id, name, color = null) {
+    // Create car for other player
+    const carGeometry = new THREE.BoxGeometry(1, 0.5, 2);
+    const carColor = color || playerColors[Math.floor(Math.random() * playerColors.length)];
+    const carMaterial = new THREE.MeshPhongMaterial({
+        color: carColor,
+        shininess: 80,
+        specular: 0x5dade2
+    });
+    const otherCar = new THREE.Mesh(carGeometry, carMaterial);
+    otherCar.castShadow = true;
+    otherCar.receiveShadow = true;
+    otherCar.position.set(0, 0.25, 0);
+    
+    // Add headlights
+    const headlightGeometry = new THREE.SphereGeometry(0.08, 8, 6);
+    const headlightMaterial = new THREE.MeshPhongMaterial({
+        color: 0xffffcc,
+        shininess: 200,
+        specular: 0xffffff,
+        emissive: 0x333300
+    });
+    
+    const leftHeadlight = new THREE.Mesh(headlightGeometry, headlightMaterial);
+    leftHeadlight.position.set(-0.3, 0.15, -1.1);
+    leftHeadlight.castShadow = true;
+    otherCar.add(leftHeadlight);
+    
+    const rightHeadlight = new THREE.Mesh(headlightGeometry, headlightMaterial);
+    rightHeadlight.position.set(0.3, 0.15, -1.1);
+    rightHeadlight.castShadow = true;
+    otherCar.add(rightHeadlight);
+    
+    // Add wheels
+    const wheelGeometry = new THREE.CylinderGeometry(0.25, 0.25, 0.2, 12);
+    const wheelMaterial = new THREE.MeshPhongMaterial({
+        color: 0x2e2e2e,
+        shininess: 30
+    });
+    
+    const wheelPositions = [
+        {pos: [-0.5, -0.1, 0.7], name: 'frontLeft'},
+        {pos: [0.5, -0.1, 0.7], name: 'frontRight'},
+        {pos: [-0.5, -0.1, -0.7], name: 'rearLeft'},
+        {pos: [0.5, -0.1, -0.7], name: 'rearRight'}
+    ];
+    
+    wheelPositions.forEach(wheelData => {
+        const wheelGroup = new THREE.Group();
+        const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.castShadow = true;
+        wheel.receiveShadow = true;
+        wheelGroup.add(wheel);
+        
+        // Add wheel patterns
+        for (let i = 0; i < 8; i++) {
+            const patternGeometry = new THREE.BoxGeometry(0.02, 0.15, 0.02);
+            const patternMaterial = new THREE.MeshPhongMaterial({
+                color: 0x1a1a1a,
+                shininess: 20
+            });
+            const pattern = new THREE.Mesh(patternGeometry, patternMaterial);
+            pattern.position.set(0, 0.2, 0);
+            pattern.rotation.z = (i * Math.PI) / 4;
+            pattern.castShadow = true;
+            wheelGroup.add(pattern);
+        }
+        
+        wheelGroup.position.set(wheelData.pos[0], wheelData.pos[1], wheelData.pos[2]);
+        wheelGroup.name = wheelData.name;
+        otherCar.add(wheelGroup);
+    });
+    
+    // Add player name label
+    const nameLabel = createPlayerNameLabel(name);
+    otherCar.add(nameLabel);
+    
+    // Store player data
+    otherCar.userData = {
+        id: id,
+        name: name,
+        speed: 0,
+        rotation: 0
+    };
+    
+    scene.add(otherCar);
+    otherPlayers.set(id, otherCar);
+    return otherCar;
+}
+
+function createPlayerNameLabel(name) {
+    // Create a simple text label (using a plane with text)
+    const labelGeometry = new THREE.PlaneGeometry(2, 0.5);
+    const labelMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.8
+    });
+    const label = new THREE.Mesh(labelGeometry, labelMaterial);
+    label.position.set(0, 1.5, 0);
+    label.userData = { text: name };
+    return label;
+}
+
+function updateMultiplayerUI() {
+    const multiplayerStatus = document.getElementById('multiplayerStatus');
+    if (multiplayerStatus) {
+        if (multiplayerConnected && isMultiplayer) {
+            multiplayerStatus.style.display = 'block';
+            if (lobbyCode) {
+                const playerCount = lobbyPlayers.size;
+                multiplayerStatus.innerHTML = `Multiplayer: ${playerCount} player${playerCount > 1 ? 's' : ''} online<br><span style="color: #00ff88; font-size: 12px;">Lobby Code: ${lobbyCode}</span>`;
+            } else {
+                multiplayerStatus.innerText = `Multiplayer: Connected (Waiting for lobby)`;
+            }
+        } else if (multiplayerConnected) {
+            multiplayerStatus.style.display = 'block';
+            multiplayerStatus.innerText = `Multiplayer: Connected to server`;
+        } else {
+            multiplayerStatus.style.display = 'none';
+        }
+    }
+}
+
+// updateOtherPlayers function removed - now handled by Socket.IO events
+
+function generateLobbyCode() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let result = '';
+    for (let i = 0; i < 6; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+}
+
+// Client-side lobby management functions removed - these are handled by the server
+
+function createLobby() {
+    if (!socket || !multiplayerConnected) {
+        alert('Not connected to multiplayer server!');
+        return;
+    }
+    
+    isHost = true;
+    lobbyState = 'creating';
+    
+    // Send create lobby request to server
+    socket.emit('createLobby', playerName);
+    
+    console.log('Creating lobby...');
+}
+
+function joinLobby(code) {
+    console.log('joinLobby function called with code:', code);
+    
+    if (!socket || !multiplayerConnected) {
+        alert('Not connected to multiplayer server!');
+        return;
+    }
+    
+    // Validate lobby code format
+    if (code.length !== 6) {
+        alert('Invalid lobby code! Please enter a 6-character code.');
+        return;
+    }
+    
+    // Check if code contains only valid characters (letters and numbers)
+    const validCodePattern = /^[A-Z0-9]{6}$/;
+    if (!validCodePattern.test(code.toUpperCase())) {
+        alert('Invalid lobby code! Code must contain only letters and numbers.');
+        return;
+    }
+    
+    lobbyCode = code.toUpperCase();
+    isHost = false;
+    lobbyState = 'joining';
+    
+    // Hide join UI
+    const joinUI = document.getElementById('joinUI');
+    if (joinUI) {
+        joinUI.style.display = 'none';
+        console.log('Join UI hidden');
+    }
+    
+    // Send join lobby request to server
+    socket.emit('joinLobby', {
+        lobbyCode: lobbyCode,
+        playerName: playerName
+    });
+    
+    console.log('Attempting to join lobby with code:', lobbyCode);
+}
+
+function showLobbyCreationUI() {
+    // Hide start menu
+    const startMenu = document.getElementById('startMenu');
+    startMenu.style.display = 'none';
+    
+    // Show lobby creation UI
+    const lobbyUI = document.getElementById('lobbyUI');
+    if (lobbyUI) {
+        lobbyUI.style.display = 'block';
+        
+        // Update lobby code display in lobby UI
+        const lobbyCodeDisplay = document.getElementById('lobbyCodeDisplay');
+        if (lobbyCodeDisplay) {
+            lobbyCodeDisplay.innerText = `Lobby Code: ${lobbyCode}`;
+        }
+        
+        // Update player list
+        updateLobbyPlayerList();
+    }
+}
+
+function showLobbyJoinUI() {
+    // Hide start menu
+    const startMenu = document.getElementById('startMenu');
+    startMenu.style.display = 'none';
+    
+    // Show lobby join UI
+    const joinUI = document.getElementById('joinUI');
+    if (joinUI) {
+        joinUI.style.display = 'block';
+        
+        // Focus the input field after a short delay
+        setTimeout(() => {
+            const joinCodeInput = document.getElementById('joinCodeInput');
+            if (joinCodeInput) {
+                joinCodeInput.focus();
+                console.log('Auto-focused join code input field');
+            }
+        }, 100);
+    }
+}
+
+function updateLobbyPlayerList() {
+    const playerList = document.getElementById('lobbyPlayerList');
+    if (playerList) {
+        playerList.innerHTML = '';
+        lobbyPlayers.forEach((player, id) => {
+            const playerItem = document.createElement('div');
+            playerItem.style.cssText = `
+                padding: 8px;
+                margin: 4px 0;
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 5px;
+                color: white;
+                font-size: 14px;
+            `;
+            playerItem.innerText = `${player.name} ${id === playerId ? '(You)' : ''}`;
+            playerList.appendChild(playerItem);
+        });
+    }
+}
+
+function startLobbyGame() {
+    console.log('startLobbyGame function called');
+    
+    if (!socket || !multiplayerConnected) {
+        alert('Not connected to multiplayer server!');
+        return;
+    }
+    
+    // Send start game request to server
+    socket.emit('startGame');
+    
+    console.log('Requesting to start game...');
+}
+
+// Function to clean up lobby when game ends
+function cleanupLobby() {
+    // Lobby cleanup is handled by the server when players disconnect
+    lobbyCode = null;
+    isHost = false;
+    lobbyPlayers.clear();
+    lobbyState = 'menu';
+}
+
+function sendPlayerUpdate() {
+    if (!multiplayerConnected || !isMultiplayer || !socket) return;
+    
+    // Send player position and rotation to server
+    socket.emit('playerUpdate', {
+        position: {
+            x: car.position.x,
+            y: car.position.y,
+            z: car.position.z
+        },
+        rotation: car.rotation.y,
+        speed: speed,
+        isShooting: isShooting
+    });
+}
+
+// simulateOtherPlayerUpdates function removed - now handled by Socket.IO events
+
+function updateRealPlayerPositions() {
+    if (!multiplayerConnected) return;
+    
+    // Update other players based on received data
+    playerPositions.forEach((playerData, id) => {
+        if (id === playerId) return; // Skip self
+        
+        const otherPlayer = otherPlayers.get(id);
+        if (otherPlayer) {
+            // Smoothly interpolate to new position
+            const targetPosition = new THREE.Vector3(
+                playerData.position.x,
+                playerData.position.y,
+                playerData.position.z
+            );
+            
+            otherPlayer.position.lerp(targetPosition, 0.1);
+            otherPlayer.rotation.y = playerData.rotation;
+            
+            // Update player data
+            otherPlayer.userData.speed = playerData.speed;
+            otherPlayer.userData.isShooting = playerData.isShooting;
+        }
+    });
+}
+
+function setupMultiplayerEventListeners() {
+    // Create Lobby Button
+    const createLobbyBtn = document.getElementById('createLobbyBtn');
+    if (createLobbyBtn) {
+        createLobbyBtn.addEventListener('click', () => {
+            createLobby();
+        });
+        createLobbyBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            createLobby();
+        });
+    }
+    
+    // Join Lobby Button
+    const joinLobbyBtn = document.getElementById('joinLobbyBtn');
+    if (joinLobbyBtn) {
+        joinLobbyBtn.addEventListener('click', () => {
+            showLobbyJoinUI();
+        });
+        joinLobbyBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            showLobbyJoinUI();
+        });
+    }
+    
+    // Back to Menu Button
+    const backToMenuBtn = document.getElementById('backToMenuBtn');
+    if (backToMenuBtn) {
+        backToMenuBtn.addEventListener('click', () => {
+            document.getElementById('multiplayerOptions').style.display = 'none';
+            document.getElementById('startMenu').style.display = 'flex';
+        });
+        backToMenuBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            document.getElementById('multiplayerOptions').style.display = 'none';
+            document.getElementById('startMenu').style.display = 'flex';
+        });
+    }
+    
+    // Start Lobby Game Button
+    const startLobbyGameBtn = document.getElementById('startLobbyGameBtn');
+    if (startLobbyGameBtn) {
+        startLobbyGameBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            console.log('Start Lobby Game button clicked');
+            startLobbyGame();
+        });
+        startLobbyGameBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            console.log('Start Lobby Game button touched');
+            startLobbyGame();
+        });
+    }
+    
+    // Cancel Lobby Button
+    const cancelLobbyBtn = document.getElementById('cancelLobbyBtn');
+    if (cancelLobbyBtn) {
+        cancelLobbyBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            console.log('Cancel Lobby button clicked');
+            // Lobby cleanup is handled by the server when players disconnect
+            document.getElementById('lobbyUI').style.display = 'none';
+            document.getElementById('startMenu').style.display = 'flex';
+        });
+        cancelLobbyBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            console.log('Cancel Lobby button touched');
+            // Lobby cleanup is handled by the server when players disconnect
+            document.getElementById('lobbyUI').style.display = 'none';
+            document.getElementById('startMenu').style.display = 'flex';
+        });
+    }
+    
+    // Join Game Button
+    const joinGameBtn = document.getElementById('joinGameBtn');
+    if (joinGameBtn) {
+        joinGameBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            console.log('Join Game button clicked');
+            const joinCodeInput = document.getElementById('joinCodeInput');
+            if (joinCodeInput) {
+                const code = joinCodeInput.value.toUpperCase();
+                console.log('Attempting to join lobby with code:', code);
+                if (code.length === 6) {
+                    joinLobby(code);
+                    document.getElementById('joinUI').style.display = 'none';
+                } else {
+                    alert('Please enter a valid 6-character lobby code!');
+                }
+            }
+        });
+        joinGameBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            console.log('Join Game button touched');
+            const joinCodeInput = document.getElementById('joinCodeInput');
+            if (joinCodeInput) {
+                const code = joinCodeInput.value.toUpperCase();
+                console.log('Attempting to join lobby with code:', code);
+                if (code.length === 6) {
+                    joinLobby(code);
+                    document.getElementById('joinUI').style.display = 'none';
+                } else {
+                    alert('Please enter a valid 6-character lobby code!');
+                }
+            }
+        });
+    }
+    
+    // Back to Multiplayer Button
+    const backToMultiplayerBtn = document.getElementById('backToMultiplayerBtn');
+    if (backToMultiplayerBtn) {
+        backToMultiplayerBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            console.log('Back to Multiplayer button clicked');
+            document.getElementById('joinUI').style.display = 'none';
+            document.getElementById('multiplayerOptions').style.display = 'block';
+        });
+        backToMultiplayerBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            console.log('Back to Multiplayer button touched');
+            document.getElementById('joinUI').style.display = 'none';
+            document.getElementById('multiplayerOptions').style.display = 'block';
+        });
+    }
+    
+    // Join Code Input Field
+    const joinCodeInput = document.getElementById('joinCodeInput');
+    if (joinCodeInput) {
+        console.log('Join code input field found and event listeners added');
+        
+        // Test click event
+        joinCodeInput.addEventListener('click', (e) => {
+            console.log('Input field clicked');
+            e.stopPropagation();
+        });
+        
+        // Test focus event
+        joinCodeInput.addEventListener('focus', (e) => {
+            console.log('Input field focused');
+            e.stopPropagation();
+        });
+        
+        // Test input event
+        joinCodeInput.addEventListener('input', (e) => {
+            console.log('Input field value:', e.target.value);
+            e.stopPropagation();
+        });
+        
+        // Test keypress event
+        joinCodeInput.addEventListener('keypress', (e) => {
+            console.log('Key pressed in input field:', e.key);
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('Enter pressed in input field');
+                const code = e.target.value.toUpperCase();
+                if (code.length === 6) {
+                    joinLobby(code);
+                    document.getElementById('joinUI').style.display = 'none';
+                } else {
+                    alert('Please enter a valid 6-character lobby code!');
+                }
+            }
+        });
+        
+        // Test mousedown event
+        joinCodeInput.addEventListener('mousedown', (e) => {
+            console.log('Input field mousedown');
+            e.stopPropagation();
+        });
+        
+        // Test touchstart event for mobile
+        joinCodeInput.addEventListener('touchstart', (e) => {
+            console.log('Input field touchstart');
+            e.stopPropagation();
+        });
+        
+        // Add a test function to manually focus the input
+        window.testInputFocus = function() {
+            joinCodeInput.focus();
+            console.log('Manually focused input field');
+        };
+        
+        // Add a test function to set a test value
+        window.testInputValue = function() {
+            joinCodeInput.value = 'ABC123';
+            console.log('Set test value in input field');
+        };
+        
+        // Debug functions removed - lobby management is handled by the server
+        
+    } else {
+        console.log('Join code input field NOT found!');
+    }
 }
 
 init();
