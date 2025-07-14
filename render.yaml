@@ -1,18 +1,3 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
-services:
-  - type: web
-    name: driving-game-multiplayer
-    env: node
-    buildCommand: npm ci
-    startCommand: npm start
-    autoDeploy: true
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PORT
-        value: 10000
-=======
 services:
   - type: web
     name: driving-game-multiplayer
@@ -24,17 +9,3 @@ services:
         value: production
       - key: PORT
         value: 10000 
->>>>>>> 3de36f64f28808ac26e98daf5090e8c46a16c901
-=======
-services:
-  - type: web
-    name: DIW By Ayush
-    env: node
-    buildCommand: npm install
-    startCommand: npm start
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PORT
-        value: 10000 
->>>>>>> parent of 3de36f6 (Update render.yaml)
