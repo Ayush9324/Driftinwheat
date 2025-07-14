@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 {
   "name": "driving-game-multiplayer",
   "version": "1.0.0",
@@ -29,3 +30,36 @@
     "node": ">=16.0.0"
   }
 } 
+=======
+{
+  "name": "driving-game-multiplayer",
+  "version": "1.0.0",
+  "description": "Real-time multiplayer driving game with Socket.IO",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "multiplayer",
+    "game",
+    "socket.io",
+    "three.js",
+    "driving"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+} 
+>>>>>>> 3de36f64f28808ac26e98daf5090e8c46a16c901
