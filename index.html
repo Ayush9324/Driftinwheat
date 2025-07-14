@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, orientation=landscape">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="screen-orientation" content="landscape">
+    <title>3D Driving Game</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: linear-gradient(to bottom, #1e3c72, #2a5298);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #fff;
+        }
+
+        #gameContainer {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            height: 100vh;
+            position: relative;
+        }
+        
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 10px;
+            z-index: 100;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            min-width: 120px;
+        }
+
+        #ui div {
+            margin: 6px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #ui span {
+            color: #00ff88;
+            font-weight: bold;
+            text-align: right;
+        }
+
+        #driftStatus {
+            color: #ff6b35 !important;
+            font-weight: bold;
+            text-shadow: 0 0 10px #ff6b35;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+        
+
+        
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            padding: 30px 40px;
+            border-radius: 15px;
+            font-size: 24px;
+            text-align: center;
+            z-index: 100;
+            display: none;
+            border: 3px solid #ff6b35;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5);
+        }
+
+        #gameOver div {
+            margin: 10px 0;
+        }
+
+        /* Mobile Controls */
+        #mobileControls {
+            position: fixed;
+            bottom: 20px;
+            left: 0;
+            right: 0;
+            z-index: 200;
+            display: none;
+            justify-content: space-between;
+            align-items: flex-end;
+            padding: 20px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .control-row {
+            display: flex;
+            gap: 10px;
+        }
+
+        .control-btn {
+            width: 60px;
+            height: 60px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+            touch-action: manipulation;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            transition: all 0.1s ease;
+        }
+
+        .control-btn.active {
+            background: rgba(0, 255, 136, 0.3);
+            border-color: #00ff88;
+            transform: scale(0.95);
+        }
+
+        .control-btn.drift {
+            width: 80px;
+            height: 40px;
+            border-radius: 20px;
+            font-size: 14px;
+            text-align: center;
+            justify-content: center;
+            align-items: center;
+            display: flex;
+            line-height: 3;
+            padding: 0;
+            
+        }
+
+        .control-btn.drift.active {
+            background: rgba(255, 107, 53, 0.3);
+            border-color: #ff6b35;
+        }
+        
+        /* Shoot button specific styles */
+        #shootBtn {
+            background: rgba(255, 255, 255, 0.15);
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            color: rgba(255, 255, 255, 0.9);
+            font-weight: bold;
+            text-shadow: 0 0 5px rgba(255, 255, 255, 0.5);
+        }
+        
+        #shootBtn:active {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(0.9);
+        }
+        
+        /* Left controls - only left/right arrows */
+        .left-controls {
+            align-self: flex-start;
+        }
+        
+        /* Right controls - up/down arrows */
+        .right-controls {
+            align-self: flex-end;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* Drift button positioned in top right corner */
+        #driftBtn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 300;
+        }
+
+        /* Lobby Code Display */
+        #lobbyCodeDisplay {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 255, 136, 0.2);
+            border: 2px solid #00ff88;
+            border-radius: 10px;
+            padding: 10px 15px;
+            color: #00ff88;
+            font-size: 16px;
+            font-weight: bold;
+            z-index: 500;
+            display: none;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 15px rgba(0, 255, 136, 0.3);
+            text-shadow: 0 0 10px #00ff88;
+        }
+
+        /* Portrait orientation warning for mobile and tablet devices */
+        @media screen and (orientation: portrait) and (max-width: 1024px) {
+            body::before {
+                content: "Please rotate your device to landscape mode for the best experience. Phone ka rotation Off karlo";
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.9);
+                color: white;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                text-align: center;
+                font-size: 18px;
+                z-index: 9999;
+                padding: 20px;
+                box-sizing: border-box;
+            }
+            
+            #gameContainer {
+                display: none;
+            }
+        }
+        
+        /* Mobile and Tablet landscape mode */
+        @media (max-width: 1024px) and (orientation: landscape) {
+            /* Mobile optimizations */
+        }
+        
+        /* Mobile devices (phones) */
+        @media (max-width: 768px) and (orientation: landscape) {
+            /* Mobile controls visibility is now handled by JavaScript device detection */
+        }
+        
+        /* Tablet devices (iPads, etc.) */
+        @media (min-width: 769px) and (max-width: 1024px) and (orientation: landscape) {
+            /* Mobile controls visibility is now handled by JavaScript device detection */
+            
+            .control-btn {
+                width: 70px;
+                height: 70px;
+                font-size: 24px;
+            }
+            
+            .control-btn.drift {
+                width: 100px;
+                height: 50px;
+                font-size: 16px;
+            }
+        }
+        
+        /* Start Menu Styles */
+        #startMenu {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, rgba(30, 60, 114, 0.6), rgba(42, 82, 152, 0.6));
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+            transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+        }
+
+        #startMenu.fade-out {
+            opacity: 0;
+            transform: scale(0.9);
+            pointer-events: none;
+        }
+
+        .menu-title {
+            font-size: 48px;
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            margin-bottom: 60px;
+            text-align: center;
+            letter-spacing: 2px;
+        }
+
+        .menu-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .menu-btn {
+            width: 280px;
+            height: 60px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 30px;
+            color: white;
+            font-size: 18px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            transition: all 0.2s ease;
+            touch-action: manipulation;
+            user-select: none;
+        }
+
+        .menu-btn:hover {
+            background: rgba(0, 255, 136, 0.2);
+            border-color: #00ff88;
+            transform: scale(1.05);
+            box-shadow: 0 6px 20px rgba(0, 255, 136, 0.3);
+        }
+
+        .menu-btn:active {
+            transform: scale(0.95);
+        }
+
+        /* Menu Container Styles */
+        .menu-container {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            height: 100%;
+        }
+        
+        /* Input Field Styles */
+        #joinCodeInput {
+            padding: 15px;
+            font-size: 18px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            text-align: center;
+            width: 200px;
+            outline: none;
+            transition: all 0.2s ease;
+            z-index: 1001;
+            position: relative;
+            pointer-events: auto;
+        }
+        
+        #joinCodeInput:focus {
+            border-color: #00ff88;
+            box-shadow: 0 0 10px rgba(0, 255, 136, 0.3);
+        }
+        
+        #joinCodeInput::placeholder {
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        /* Desktop only - controls will be handled by JavaScript */
+        @media (min-width: 1025px) {
+            /* Mobile controls visibility is now handled by JavaScript device detection */
+        }
+
+        /* Hidden Corner Notice Styles */
+        .hidden-corner-notice {
+            position: absolute;
+            background: rgba(255, 0, 0, 0.8);
+            color: #000;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: bold;
+            text-align: center;
+            border: 1px solid #ff0000;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+            z-index: 50;
+            pointer-events: none;
+            white-space: nowrap;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            transform: translate(-50%, -50%);
+        }
+        
+        /* Player Name Input Styles */
+        #playerNameInput {
+            position: relative;
+            z-index: 1003;
+            pointer-events: auto;
+            cursor: text;
+        }
+        
+        #playerNameInput:focus {
+            border-color: #00ff88;
+            box-shadow: 0 0 15px rgba(0, 255, 136, 0.4);
+            background: rgba(255, 255, 255, 0.3);
+        }
+        
+        #playerNameInput::placeholder {
+            color: rgba(255, 255, 255, 0.7);
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <!-- Start Menu -->
+        <div id="startMenu">
+            <div class="menu-title">Drift in Wheat 😉</div>
+            <div style="margin: 20px 0; position: relative; z-index: 1002;">
+                <input type="text" id="playerNameInput" placeholder="Enter your name" maxlength="15" autocomplete="off" style="padding: 15px; font-size: 18px; border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 10px; background: rgba(255, 255, 255, 0.2); color: white; text-align: center; width: 250px; outline: none; transition: all 0.2s ease; position: relative; z-index: 1003; pointer-events: auto;">
+                <div style="font-size: 12px; color: #ccc; margin-top: 5px;">Enter your player name</div>
+            </div>
+            <div class="menu-buttons">
+                <div class="menu-btn" id="startBtn">START DRIFTING</div>
+                <div class="menu-btn" id="multiplayerBtn">MULTIPLAYER</div>
+                <div class="menu-btn" id="settingsBtn">SETTINGS</div>
+            </div>
+        </div>
+        
+        <!-- Multiplayer Options -->
+        <div id="multiplayerOptions" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(135deg, rgba(30, 60, 114, 0.6), rgba(42, 82, 152, 0.6)); z-index: 1000; backdrop-filter: blur(10px);">
+            <div class="menu-container">
+                <div class="menu-title">Multiplayer</div>
+                <div class="menu-buttons">
+                    <div class="menu-btn" id="createLobbyBtn">CREATE LOBBY</div>
+                    <div class="menu-btn" id="joinLobbyBtn">JOIN LOBBY</div>
+                    <div class="menu-btn" id="backToMenuBtn">BACK TO MENU</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Lobby Creation UI -->
+        <div id="lobbyUI" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(135deg, rgba(30, 60, 114, 0.6), rgba(42, 82, 152, 0.6)); z-index: 1000; backdrop-filter: blur(10px);">
+            <div class="menu-container">
+                <div class="menu-title">Lobby Created!</div>
+                <div id="lobbyCodeDisplay" style="font-size: 24px; color: #00ff88; margin: 20px 0; text-shadow: 0 0 10px #00ff88; text-align: left;">Lobby Code: ABC123</div>
+                <div id="lobbyPlayerList" style="max-height: 200px; overflow-y: auto; margin: 20px 0;"></div>
+                <div class="menu-buttons">
+                    <div class="menu-btn" id="startLobbyGameBtn">START GAME</div>
+                    <div class="menu-btn" id="cancelLobbyBtn">CANCEL</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Join Lobby UI -->
+        <div id="joinUI" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(135deg, rgba(30, 60, 114, 0.6), rgba(42, 82, 152, 0.6)); z-index: 1000; backdrop-filter: blur(10px);">
+            <div class="menu-container">
+                <div class="menu-title">Join Lobby</div>
+                <div style="margin: 20px 0; position: relative; z-index: 1002;">
+                    <input type="text" id="joinCodeInput" placeholder="Enter 6-digit code" maxlength="6" autocomplete="off">
+                    <div style="font-size: 12px; color: #ccc; margin-top: 5px;">Click here to type the lobby code</div>
+                </div>
+                <div class="menu-buttons">
+                    <div class="menu-btn" id="joinGameBtn">JOIN GAME</div>
+                    <div class="menu-btn" id="backToMultiplayerBtn">BACK</div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="ui" style="display: none;">
+            <div id="playerNameDisplay" style="color: #00ff88; font-weight: bold; text-align: center; margin-bottom: 10px; text-shadow: 0 0 10px #00ff88; font-size: 16px;">Player: Guest</div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span style="text-align: left;">Score:</span>
+                <span id="score" style="text-align: right;">0</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span style="text-align: left;">Speed:</span>
+                <span id="speed" style="text-align: right;">0</span>
+
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span style="text-align: left;">Drift Score:</span>
+                <span id="driftScore" style="text-align: right;">0</span>
+            </div>
+            <div id="driftStatus" style="color: orange; font-weight: bold; text-align: center; margin-bottom: 6px;">DRIFT!</div>
+            <div id="multiplayerStatus" style="display: none; color: #00ffff; font-weight: bold; text-shadow: 0 0 10px #00ffff; text-align: center; margin-bottom: 6px;">Multiplayer: 1 player online</div>
+            <div id="deerHealth" style="display: none; color: #00ff88; font-weight: bold; text-align: left; margin-bottom: 6px;">Deer Health: 30/30</div>
+            <div id="deerSpitWarning" style="display: none; color: #ff4444; font-weight: bold; text-shadow: 0 0 10px #ff4444; animation: pulse 0.5s infinite; text-align: center;">DEER SPITTING! -100 points if hit!</div>
+        </div>
+        
+
+        
+
+        
+        <!-- Death Screen -->
+        <div id="deathScreen" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(135deg, rgba(139, 0, 0, 0.8), rgba(220, 20, 60, 0.8)); z-index: 1000; backdrop-filter: blur(10px);">
+            <div class="menu-container">
+                <div class="menu-title" style="color: #ff4444; text-shadow: 0 0 20px #ff4444;">YOU DIED!</div>
+                <div style="font-size: 24px; color: #fff; margin: 20px 0; text-shadow: 0 2px 4px rgba(0,0,0,0.8);">
+                    Final Score: <span id="deathFinalScore" style="color: #00ff88;">0</span>
+                </div>
+                <div style="font-size: 18px; color: #ccc; margin: 20px 0; text-align: center;">
+                    You were eliminated by <span id="killerPlayerName" style="color: #ff4444;">another player</span>!
+                </div>
+                <div class="menu-buttons">
+                    <div class="menu-btn" id="restartAfterDeathBtn" style="background: rgba(0, 255, 136, 0.2); border-color: #00ff88;">RESTART GAME</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Winner Screen -->
+        <div id="winnerScreen" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(135deg, rgba(255, 215, 0, 0.8), rgba(255, 255, 0, 0.8)); z-index: 1000; backdrop-filter: blur(10px);">
+            <div class="menu-container">
+                <div class="menu-title" style="color: #524501; text-shadow: 0 0 20px #ffd700;">🎉 WINNER! 🎉</div>
+                <div style="font-size: 20px; color: #fff; margin: 15px 0; text-shadow: 0 2px 4px rgba(0,0,0,0.8);">
+                    Winner: <span id="winnerPlayerName" style="color: #00ff88;">Player</span>
+                </div>
+                <div style="font-size: 24px; color: #fff; margin: 20px 0; text-shadow: 0 2px 4px rgba(0,0,0,0.8);">
+                    Final Score: <span id="winnerFinalScore" style="color: #00ff88;">0</span>
+                </div>
+                <div style="font-size: 18px; color: #ccc; margin: 20px 0; text-align: center;">
+                    Congratulations! You reached 1000 points!
+                </div>
+                <div class="menu-buttons">
+                    <div class="menu-btn" id="restartAfterWinBtn" style="background: rgba(0, 255, 136, 0.2); border-color: #00ff88;">PLAY AGAIN</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Mobile Controls -->
+        <div id="mobileControls" style="display: none;">
+            <!-- Left side: Only left/right arrows -->
+            <div class="control-group left-controls">
+                <div class="control-row">
+                    <div class="control-btn" id="leftBtn">←</div>
+                    <div class="control-btn" id="rightBtn">→</div>
+                </div>
+            </div>
+            
+            <!-- Right side: Up/down arrows -->
+            <div class="control-group right-controls">
+                <div class="control-btn" id="upBtn">↑</div>
+                <div class="control-btn" id="downBtn">↓</div>
+            </div>
+        </div>
+        
+        <!-- Shoot button for mobile -->
+        <div class="control-btn drift" id="shootBtn" style="display: none; position: absolute; top: 20px; left: 220px; z-index: 300;">SHOOT</div>
+        
+        <!-- Heat Bar -->
+        <div id="heatBar" style="display: none; position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 400; width: 250px; height: 25px; background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 12px; overflow: hidden; backdrop-filter: blur(10px); box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);">
+            <div id="heatBarFill" style="width: 0%; height: 100%; background: linear-gradient(to right, #00ff00, #ffff00, #ff0000); transition: width 0.1s ease; border-radius: 10px;"></div>
+            <div id="heatBarText" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 13px; font-weight: bold; text-shadow: 0 2px 4px rgba(0,0,0,0.8); pointer-events: none;">HEAT: 0%</div>
+        </div>
+        
+        <!-- Player Health Bar -->
+        <div id="playerHealthBar" style="display: none; position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 400; width: 300px; height: 30px; background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 15px; overflow: hidden; backdrop-filter: blur(10px); box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);">
+            <div id="playerHealthBarFill" style="width: 100%; height: 100%; background: linear-gradient(to right, #00ff00, #ffff00, #ff0000); transition: width 0.3s ease; border-radius: 13px;"></div>
+            <div id="playerHealthBarText" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 14px; font-weight: bold; text-shadow: 0 2px 4px rgba(0,0,0,0.8); pointer-events: none;">HEALTH: 200/200</div>
+        </div>
+        
+        <!-- Drift button in top right corner -->
+        <div class="control-btn drift" id="driftBtn" style="display: none;">DRIFT</div>
+        
+        <!-- Lobby Code Display -->
+        <div id="lobbyCodeDisplay" style="text-align: left;">Lobby Code: ABC123</div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="game.js"></script>
+    <script>
+    function requestFullscreenForGameContainer() {
+        const elem = document.getElementById('gameContainer');
+        if (window.innerWidth <= 1024) { // Only on mobile/tablet
+            if (elem.requestFullscreen) {
+                elem.requestFullscreen();
+            } else if (elem.mozRequestFullScreen) {
+                elem.mozRequestFullScreen();
+            } else if (elem.webkitRequestFullscreen) {
+                elem.webkitRequestFullscreen();
+            } else if (elem.msRequestFullscreen) {
+                elem.msRequestFullscreen();
+            }
+        }
+    }
+    // Patch start button and multiplayer start to force fullscreen
+    document.addEventListener('DOMContentLoaded', function() {
+        var startBtn = document.getElementById('startBtn');
+        if (startBtn) {
+            startBtn.addEventListener('click', requestFullscreenForGameContainer, { once: true });
+        }
+        var startLobbyGameBtn = document.getElementById('startLobbyGameBtn');
+        if (startLobbyGameBtn) {
+            startLobbyGameBtn.addEventListener('click', requestFullscreenForGameContainer, { once: true });
+        }
+    });
+    </script>
+</body>
+</html>

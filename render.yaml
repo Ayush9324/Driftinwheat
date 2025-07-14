@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: driving-game-multiplayer
+    env: node
+    buildCommand: npm ci
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
