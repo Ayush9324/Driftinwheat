@@ -299,20 +299,33 @@
         /* Lobby Code Display */
         #lobbyCodeDisplay {
             position: fixed;
-            top: 20px;
-            right: 20px;
-            background: rgba(0, 255, 136, 0.2);
-            border: 2px solid #00ff88;
-            border-radius: 10px;
-            padding: 10px 15px;
+            left: 8px;
+            bottom: 8px;
+            background: rgba(0, 255, 136, 0.15);
+            border: 1px solid #00ff88;
+            border-radius: 7px;
+            padding: 4px 10px;
             color: #00ff88;
-            font-size: 16px;
+            font-size: 11px;
             font-weight: bold;
-            z-index: 500;
-            display: none;
+            z-index: 999;
+            display: block;
             backdrop-filter: blur(10px);
-            box-shadow: 0 4px 15px rgba(0, 255, 136, 0.3);
-            text-shadow: 0 0 10px #00ff88;
+            box-shadow: 0 2px 8px rgba(0,255,136,0.15);
+            text-shadow: 0 0 6px #00ff88;
+            width: auto;
+            min-width: 80px;
+            max-width: 40vw;
+            text-align: left;
+            pointer-events: none;
+        }
+
+        /* Only show HUD Lobby Code on small screens in gameplay HUD */
+        @media (max-width: 1000px) and (max-height: 500px) {
+            #lobbyCodeDisplay {
+                display: block !important;
+            }
+        }
         }
 
         /* Portrait orientation warning for mobile and tablet devices */
@@ -707,6 +720,7 @@
 
             /* Hide Player, Speed, Online Players from scoreboard */
             #ui #playerNameDisplay,
+
             #ui #playerNameDisplay,
             #ui .hud-item:nth-child(3), /* Online Players */
             #ui .hud-item:nth-child(4), /* Speed */
@@ -936,6 +950,28 @@
             #ui.collapsed:after {
                 display: none !important;
                 content: none !important;
+            }
+            /* --- Responsive Lobby Code for HUD --- */
+            #ui #lobbyCodeDisplay {
+                position: fixed !important;
+                left: 8px !important;
+                bottom: 8px !important;
+                background: rgba(0, 255, 136, 0.15) !important;
+                border: 1px solid #00ff88 !important;
+                border-radius: 7px !important;
+                padding: 4px 10px !important;
+                color: #00ff88 !important;
+                font-size: 11px !important;
+                font-weight: bold !important;
+                z-index: 999 !important;
+                box-shadow: 0 2px 8px rgba(0,255,136,0.15) !important;
+                text-shadow: 0 0 6px #00ff88 !important;
+                display: block !important;
+                width: auto !important;
+                min-width: 80px !important;
+                max-width: 40vw !important;
+                text-align: left !important;
+                pointer-events: none !important;
             }
         }
         /* Responsive HUD for Small Screens - NEW */
@@ -1310,13 +1346,19 @@
         
         <!-- Lobby Creation UI -->
         <div id="lobbyUI" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(135deg, rgba(30, 60, 114, 0.6), rgba(42, 82, 152, 0.6)); z-index: 1000; backdrop-filter: blur(10px);">
-            <div class="menu-container">
+            <div class="menu-container" style="position: relative; height: 100%;">
                 <div class="menu-title">Lobby Created!</div>
                 <div id="lobbyCodeDisplay" style="font-size: 24px; color: #00ff88; margin: 20px 0; text-shadow: 0 0 10px #00ff88; text-align: left;">Lobby Code: ABC123</div>
                 <div id="lobbyPlayerList" style="max-height: 200px; overflow-y: auto; margin: 20px 0;"></div>
                 <div class="menu-buttons">
                     <div class="menu-btn" id="startLobbyGameBtn">START GAME</div>
                     <div class="menu-btn" id="cancelLobbyBtn">CANCEL</div>
+                </div>
+                <div style="position: absolute; left: 260px; bottom: 18px; display: flex; align-items: center;">
+                    <span style="font-size: 22px; color: #111; font-weight: bold; margin-right: 5px;">&larr;</span>
+                    <span style="font-size: 15px; color: #111; font-weight: 450; max-width: 480px; line-height: 1.3;">
+                        Remember this code and use it in other devices to join same lobby and play with your friends. Now click on 'START GAME' button and then 'BACK TO MENU' to start the game.
+                    </span>
                 </div>
             </div>
         </div>
@@ -1423,7 +1465,7 @@
         </div>
         
         <!-- Shoot button for mobile -->
-        <div class="control-btn drift" id="shootBtn" style="display: none; position: absolute; top: 20px; left: 220px; z-index: 300;">SHOOT</div>
+        <div class="control-btn drift" id="shootBtn" style="display: none; position: absolute; top: 20px; left: 220px; z-index: 300;">SHOOT(X)</div>
         
         <!-- Heat Bar -->
         <div id="heatBar" style="display: none; position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 400; width: 250px; height: 25px; background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 12px; overflow: hidden; backdrop-filter: blur(10px); box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);">
@@ -1441,7 +1483,7 @@
         <div class="control-btn drift" id="driftBtn" style="display: none;">DRIFT</div>
         
         <!-- Lobby Code Display -->
-        <div id="lobbyCodeDisplay" style="text-align: left;">Lobby Code: ABC123</div>
+        <!-- Lobby Code Display for HUD (responsive, hidden by default) -->
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -1623,7 +1665,18 @@
         }
         var startLobbyGameBtn = document.getElementById('startLobbyGameBtn');
         if (startLobbyGameBtn) {
-            startLobbyGameBtn.addEventListener('click', requestFullscreenForGameContainer, { once: true });
+            startLobbyGameBtn.addEventListener('click', function() {
+                // Hide the lobby UI
+                var lobbyUI = document.getElementById('lobbyUI');
+                if (lobbyUI) lobbyUI.style.display = 'none';
+                // Show the gameplay HUD
+                var ui = document.getElementById('ui');
+                if (ui) ui.style.display = 'block';
+                // Optionally, trigger any game start logic here
+                if (typeof window.startGame === 'function') {
+                    window.startGame();
+                }
+            }, { once: true });
         }
         // Also trigger fullscreen on touch anywhere on the game area (as fallback)
         var gameContainer = document.getElementById('gameContainer');
@@ -1636,6 +1689,7 @@
         }
     });
     // Collapsible scoreboard logic (no wrapper)
+    // Collapsible scoreboard logic (no wrapper)
     document.addEventListener('DOMContentLoaded', function() {
         var arrow = document.getElementById('scoreboardCollapseArrow');
         var ui = document.getElementById('ui');
@@ -1645,6 +1699,40 @@
                 ui.classList.toggle('collapsed');
             });
         }
+        // --- Dynamic Lobby Code HUD Injection ---
+        function updateLobbyCodeDisplay(code) {
+            var lobbyUICode = document.querySelector('#lobbyUI #lobbyCodeDisplay');
+            if (lobbyUICode) {
+                lobbyUICode.textContent = code ? `Lobby Code: ${code}` : '';
+            }
+        }
+
+        // Example: Listen for lobby code changes (replace with your actual logic)
+        // You should call updateLobbyCodeDisplay(lobbyCode) whenever the code changes
+        // For demonstration, let's simulate a lobby code update:
+        window.setLobbyCode = function(lobbyCode) {
+            updateLobbyCodeDisplay(lobbyCode);
+        };
+
+        // Re-check HUD lobby code display on resize or HUD show/hide
+        window.addEventListener('resize', function() {
+            if (window.lobbyCodeValue) updateLobbyCodeDisplay(window.lobbyCodeValue);
+        });
+        var ui = document.getElementById('ui');
+        var observer = new MutationObserver(function() {
+            if (window.lobbyCodeValue) updateLobbyCodeDisplay(window.lobbyCodeValue);
+        });
+        if (ui) observer.observe(ui, { attributes: true, attributeFilter: ['style', 'class'] });
+        // Store last lobby code for re-injection
+        window.lobbyCodeValue = '';
+        window.setLobbyCode = function(lobbyCode) {
+            window.lobbyCodeValue = lobbyCode;
+            updateLobbyCodeDisplay(lobbyCode);
+        };
+
+        // If you already have a global variable for lobby code, call updateLobbyCodeDisplay(lobbyCode) after joining/creating lobby
+        // Example usage:
+        // window.setLobbyCode('098178');
     });
      </script>
 </body>

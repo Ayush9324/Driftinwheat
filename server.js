@@ -179,14 +179,17 @@ io.on('connection', (socket) => {
                 playerData.rotation = data.rotation;
                 playerData.speed = data.speed;
                 playerData.isShooting = data.isShooting;
-
-                // Broadcast to other players in lobby
+                if (data.name) {
+                    playerData.name = data.name;
+                }
+                // Broadcast to other players in lobby, including name
                 socket.to(player.lobbyCode).emit('playerMoved', {
                     id: socket.id,
                     position: data.position,
                     rotation: data.rotation,
                     speed: data.speed,
-                    isShooting: data.isShooting
+                    isShooting: data.isShooting,
+                    name: playerData.name
                 });
             }
         }
