@@ -639,6 +639,46 @@
         /* --- Responsive HUD and Controls for Small Screens --- */
         /* Custom fixes for exactly 1000x500 resolution */
         @media (max-width: 1000px) and (max-height: 500px) {
+            /* Multiplayer and Create Server menu: smaller and row-wise */
+            #multiplayerOptions .menu-title,
+            #lobbyUI .menu-title,
+            #joinUI .menu-title {
+                font-size: 12px !important;
+                margin-bottom: 4px !important;
+            }
+            #multiplayerOptions .menu-buttons,
+            #lobbyUI .menu-buttons,
+            #joinUI .menu-buttons {
+                display: flex !important;
+                flex-direction: row !important;
+                gap: 8px !important;
+                width: 100vw !important;
+                justify-content: center !important;
+                align-items: center !important;
+                margin-bottom: 8px !important;
+            }
+            #multiplayerOptions .menu-btn,
+            #lobbyUI .menu-btn,
+            #joinUI .menu-btn {
+                width: 80px !important;
+                height: 24px !important;
+                font-size: 8px !important;
+                border-radius: 8px !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+            #multiplayerOptions .menu-container,
+            #lobbyUI .menu-container,
+            #joinUI .menu-container {
+                padding: 2px 0 0 0 !important;
+                min-height: 100px !important;
+                min-width: 100vw !important;
+                display: flex !important;
+                flex-direction: column !important;
+                justify-content: flex-start !important;
+                align-items: center !important;
+                overflow-y: auto !important;
+            }
             /* 1. Hide shoot button when scoreboard is open, show when closed, and move below bar */
             #ui:not(.collapsed) ~ #shootBtn {
                 display: none !important;
@@ -665,13 +705,52 @@
                 border-radius: 12px !important;
             }
 
+            /* Hide Player, Speed, Online Players from scoreboard */
+            #ui #playerNameDisplay,
+            #ui #playerNameDisplay,
+            #ui .hud-item:nth-child(3), /* Online Players */
+            #ui .hud-item:nth-child(4), /* Speed */
+            #ui .hud-item:nth-child(2) { /* Player */
+                display: none !important;
+            }
+
+            /* Make scoreboard overall size smaller */
+            #ui {
+                min-width: 40px !important;
+                min-height: 20px !important;
+                width: 40px !important;
+                height: 20px !important;
+                padding: 0.5px 0.5px !important;
+                font-size: 1px !important;
+            }
+            #ui .hud-group {
+                gap: 0.05px !important;
+            }
+            #ui .hud-item {
+                font-size: 5px !important;
+                min-width: unset !important;
+                padding: 0 !important;
+            }
+            #ui .hud-label, #ui .hud-value {
+                font-size: 5px !important;
+            }
+            #playerNameDisplay, #driftStatus {
+                font-size: 5px !important;
+            }
+            #scoreboardCollapseArrow {
+                font-size: 7px !important;
+            }
+            #ui.collapsed {
+                height: 16px !important;
+            }
+
             /* Vertically oriented scoreboard for 1000x500 */
             #ui {
                 flex-direction: column !important;
                 min-width: 60px !important;
                 min-height: 60px !important;
                 width: 60px !important;
-                height: 120px !important;
+                height: 80px !important;
                 padding: 1px 1px !important;
                 font-size: 2px !important;
             }
@@ -926,11 +1005,11 @@
                 display: none !important;
             }
             #ui.collapsed {
-                min-width: 70px !important;
-                width: 70px !important;
+                min-width: 0 !important;
+                width: auto !important;
                 height: 24px !important;
-                padding: 0 3px !important;
-                background: transparent !important;
+                padding: 0 !important;
+                background: none !important;
                 box-shadow: none !important;
                 border: none !important;
                 display: flex !important;
@@ -947,6 +1026,237 @@
                 top: 2px;
                 right: 4px;
             }
+        }
+        /* Big UI for large screens (PCs, tablets, etc.) except 1000x500 and below */
+        @media (min-width: 1001px), (min-height: 501px) {
+            /* Scoreboard: horizontal orientation for big screens */
+            #ui {
+                flex-direction: column !important;
+                min-width: 220px;
+                min-height: 220px;
+                width: 240px;
+                height: auto;
+                padding: 18px 18px 18px 18px;
+                font-size: 16px;
+                border-radius: 18px;
+                box-shadow: 0 8px 28px rgba(0,0,0,0.22);
+                align-items: flex-start !important;
+                justify-content: flex-start !important;
+                gap: 12px !important;
+                background: rgba(255,255,255,0.13);
+            }
+            #ui .hud-group {
+                flex-direction: column !important;
+                gap: 10px !important;
+                align-items: flex-start !important;
+                width: 100%;
+            }
+            #ui .hud-item {
+                flex-direction: column !important;
+                align-items: flex-start !important;
+                padding: 0 6px !important;
+                min-width: 100px;
+                font-size: 16px;
+                justify-content: flex-start !important;
+                margin-bottom: 4px !important;
+                width: 100%;
+            }
+            #ui .hud-label,
+            #ui .hud-value,
+            #playerNameDisplay,
+            #driftStatus {
+                font-size: 16px !important;
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+                color: #00ff88 !important;
+                font-weight: bold !important;
+                text-align: left !important;
+                line-height: 1.1 !important;
+                margin-bottom: 2px !important;
+                margin-right: 0 !important;
+                margin-left: 0 !important;
+                align-self: flex-start !important;
+                width: 100%;
+                text-shadow: 0 0 10px #00ff88 !important;
+            }
+            #scoreboardCollapseArrow {
+                font-size: 38px !important;
+                top: 8px !important;
+                left: 8px !important;
+                right: auto !important;
+                cursor: pointer;
+                z-index: 101;
+                user-select: none;
+                transition: transform 0.2s;
+            }
+            #shootBtn {
+                width: 120px;
+                height: 38px;
+                font-size: 18px;
+                border-radius: 12px;
+            }
+            /* Health bar styling for large screens */
+            #healthBar {
+                position: fixed;
+                left: 50%;
+                bottom: 18px;
+                transform: translateX(-50%);
+                width: 620px;
+                height: 120px;
+                background: rgba(0,0,0,0.18);
+                border-radius: 28px;
+                box-shadow: 0 8px 28px rgba(0,0,0,0.22);
+                z-index: 200;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            #healthBar .bar-label {
+                position: absolute;
+                left: 35px;
+                color: #fff;
+                font-size: 38px;
+                font-weight: bold;
+                text-shadow: 0 2px 8px rgba(0,0,0,0.18);
+            }
+            #healthBar .bar-value {
+                position: absolute;
+                right: 28px;
+                color: #00ff88;
+                font-size: 38px;
+                font-weight: bold;
+                text-shadow: 0 2px 8px rgba(0,255,136,0.18);
+            }
+            #healthBar .bar-fill {
+                width: 90%;
+                height: 32px;
+                background: linear-gradient(90deg, #00ff88 80%, #00c97a 100%);
+                border-radius: 16px;
+                margin: 0 28px;
+            }
+            /* Heat bar styling for large screens */
+            #heatBar {
+                position: fixed;
+                top: 38px;
+                left: 50%;
+                transform: translateX(-50%);
+                width: 620px;
+                height: 64px;
+                background: rgba(255,140,0,0.18);
+                border-radius: 28px;
+                box-shadow: 0 8px 28px rgba(255,140,0,0.22);
+                z-index: 200;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            #heatBar .bar-label {
+                position: absolute;
+                left: 28px;
+                color: #fff;
+                font-size: 38px;
+                font-weight: bold;
+                text-shadow: 0 2px 8px rgba(255,140,0,0.18);
+            }
+            #heatBar .bar-value {
+                position: absolute;
+                right: 28px;
+                color: #ff8c00;
+                font-size: 38px;
+                font-weight: bold;
+                text-shadow: 0 2px 8px rgba(255,140,0,0.18);
+            }
+            #heatBar .bar-fill {
+                width: 90%;
+                height: 32px;
+                background: linear-gradient(90deg, #ff8c00 80%, #ffb347 100%);
+                border-radius: 16px;
+                margin: 0 28px;
+            }
+            /* Bigger Multiplayer, About Dev, Create Server Menus */
+            #multiplayerOptions .menu-title,
+            #lobbyUI .menu-title,
+            #joinUI .menu-title {
+                font-size: 64px !important;
+                margin-bottom: 70px !important;
+            }
+            #multiplayerOptions .menu-btn,
+            #lobbyUI .menu-btn,
+            #joinUI .menu-btn {
+                width: 420px !important;
+                height: 100px !important;
+                font-size: 38px !important;
+                border-radius: 38px !important;
+            }
+            #multiplayerOptions .menu-buttons,
+            #lobbyUI .menu-buttons,
+            #joinUI .menu-buttons {
+                gap: 38px !important;
+            }
+            #aboutDevModal > div[style*="background: rgba(255,255,255,0.08)"],
+            #aboutDevModal > div[style*="background: rgba(255,255,255,0.12)"] {
+                font-size: 28px !important;
+                padding: 48px 48px !important;
+                border-radius: 24px !important;
+                min-height: 120px !important;
+                height: 120px !important;
+                max-width: 520px !important;
+            }
+            #aboutDevModal .about-dev-content {
+                gap: 48px !important;
+                max-width: 95vw !important;
+            }
+            #avatar3dContainer {
+                width: 320px !important;
+                height: 320px !important;
+                min-width: 260px !important;
+                min-height: 260px !important;
+                border-radius: 24px !important;
+                background: rgba(255,255,255,0.04);
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+            }
+            #aboutDevModal .about-dev-credit > div {
+                font-size: 24px !important;
+                line-height: 1.7 !important;
+            }
+            #aboutDevModal > div[style*="position: absolute; bottom: 32px;"] {
+                font-size: 24px !important;
+                padding: 16px 32px !important;
+                border-radius: 18px !important;
+                bottom: 32px !important;
+                right: 32px !important;
+                min-height: 32px !important;
+                height: 32px !important;
+                max-height: 32px !important;
+            }
+            #aboutDevBackBtn {
+                width: 180px !important;
+                height: 64px !important;
+                font-size: 28px !important;
+                border-radius: 24px !important;
+                top: 32px !important;
+                left: 32px !important;
+            }
+            #aboutDevModal a {
+                font-size: 24px !important;
+            }
+        }
+        #ui.collapsed {
+            min-width: 0 !important;
+            width: auto !important;
+            height: 24px !important;
+            padding: 0 !important;
+            background: none !important;
+            box-shadow: none !important;
+            border: none !important;
+            display: flex !important;
+            flex-direction: row !important;
+            align-items: center !important;
+            justify-content: flex-start !important;
+            background-color: transparent !important;
+            box-shadow: none !important;
+            border: none !important;
         }
     </style>
 </head>
@@ -1033,6 +1343,10 @@
                 <div class="hud-item">
                     <span class="hud-label">Score:</span>
                     <span class="hud-value" id="score">0</span>
+                </div>
+                <div class="hud-item">
+                    <span class="hud-label">Online Players:</span>
+                    <span class="hud-value" id="multiplayerStatus"></span>
                 </div>
                 <div class="hud-item">
                     <span class="hud-label">Speed:</span>
@@ -1332,6 +1646,6 @@
             });
         }
     });
-    </script>
+     </script>
 </body>
 </html>
